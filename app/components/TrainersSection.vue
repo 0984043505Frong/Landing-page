@@ -13,6 +13,7 @@ import { trainers, trainersSection } from '~/data/trainers'
         heading-id="trainers-heading"
         :heading="trainersSection.heading"
         :intro="trainersSection.intro"
+        class="mb-8 lg:mb-12"
       />
       <!-- 1 column on phones, 2 from 768px (design spec 4.8). -->
       <ul

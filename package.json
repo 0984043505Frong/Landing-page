@@ -13,6 +13,7 @@
     "test:e2e": "playwright test",
     "lint": "eslint .",
     "typecheck": "nuxt typecheck",
+    "brand-images": "node scripts/generate-brand-images.mjs",
     "postinstall": "nuxt prepare"
   },
   "dependencies": {

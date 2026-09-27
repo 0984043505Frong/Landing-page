@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { contact } from '../../app/data/contact'
+import { contact, contactSection } from '../../app/data/contact'
 import { courses, coursesSection } from '../../app/data/courses'
-import { faqs } from '../../app/data/faqs'
+import { faqSection, faqs } from '../../app/data/faqs'
 import { quoteForm } from '../../app/data/quoteForm'
 import { site } from '../../app/data/site'
 import { stats, statsSection } from '../../app/data/stats'
@@ -54,7 +54,7 @@ describe('site', () => {
   })
 
   it('shows the exact disclaimer in the footer (N11)', () => {
-    expect(site.footer.note).toBe('เว็บไซต์ตัวอย่างเพื่อแสดงผลงาน · แบรนด์และข้อมูลเป็นสมมติ')
+    expect(joinPhrases(site.footer.note)).toBe('เว็บไซต์ตัวอย่างเพื่อแสดงผลงาน · แบรนด์และข้อมูลเป็นสมมติ')
   })
 })
 
@@ -153,6 +153,19 @@ const phraseLists: [string, ThaiText][] = [
     [`trainers[${trainer.id}].name`, trainer.name],
     [`trainers[${trainer.id}].role`, trainer.role],
   ]),
+  ['faqSection.heading', faqSection.heading],
+  ...faqs.flatMap((faq): [string, ThaiText][] => [
+    [`faqs[${faq.id}].question`, faq.question],
+    [`faqs[${faq.id}].answer`, faq.answer],
+  ]),
+  ['contactSection.heading', contactSection.heading],
+  ['contactSection.intro', contactSection.intro],
+  ...contactSection.highlights.map((highlight, index): [string, ThaiText] => [`contactSection.highlights[${index}]`, highlight]),
+  ['quoteForm.title', quoteForm.title],
+  ['quoteForm.errors.phone.invalid', quoteForm.errors.phone.invalid],
+  ['quoteForm.success.message', quoteForm.success.message],
+  ['quoteForm.success.note', quoteForm.success.note],
+  ['site.footer.note', site.footer.note],
 ]
 
 describe('phrase lists (D-009)', () => {
@@ -173,12 +186,12 @@ describe('phrase lists (D-009)', () => {
 describe('quote form text', () => {
   it('has a message for every validation error', () => {
     for (const messages of Object.values(quoteForm.errors)) {
-      for (const message of Object.values(messages)) expect(message.trim()).not.toBe('')
+      for (const message of Object.values<ThaiText>(messages)) expect(joinPhrases(message).trim()).not.toBe('')
     }
   })
 
   it('shows the exact thank-you text after submitting (N13)', () => {
-    expect(quoteForm.success.message).toBe('ขอบคุณที่สนใจ BrightPath Academy ทีมงานจะติดต่อกลับภายใน 1 วันทำการ')
-    expect(quoteForm.success.note).toBe('(เว็บไซต์ตัวอย่าง — ข้อมูลในฟอร์มไม่ได้ถูกส่งจริง)')
+    expect(joinPhrases(quoteForm.success.message)).toBe('ขอบคุณที่สนใจ BrightPath Academy ทีมงานจะติดต่อกลับภายใน 1 วันทำการ')
+    expect(joinPhrases(quoteForm.success.note)).toBe('(เว็บไซต์ตัวอย่าง — ข้อมูลในฟอร์มไม่ได้ถูกส่งจริง)')
   })
 })

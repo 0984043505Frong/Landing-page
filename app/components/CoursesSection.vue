@@ -13,6 +13,7 @@ import { courses, coursesSection } from '~/data/courses'
         heading-id="courses-heading"
         :heading="coursesSection.heading"
         :intro="coursesSection.intro"
+        class="mb-8 lg:mb-12"
       />
       <!-- One card per course in app/data/courses.ts: 1, 2 or 3 columns (design spec 4.6). -->
       <ul

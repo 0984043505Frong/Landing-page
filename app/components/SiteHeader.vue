@@ -45,19 +45,7 @@ onBeforeUnmount(() => {
         href="#hero"
         class="inline-flex min-h-11 items-center gap-2.5 text-brand-900"
       >
-        <span
-          class="relative grid size-[38px] shrink-0 place-items-center rounded-button bg-brand-900 text-[16px] leading-none font-bold tracking-[.02em] text-white"
-          aria-hidden="true"
-        >
-          {{ site.logo.mark }}
-          <span class="absolute -top-1 -right-1 size-3 rounded-full border-2 border-surface bg-accent-500" />
-        </span>
-        <span class="grid leading-[1.15]">
-          <span class="text-[18px] font-bold">{{ site.logo.name }}</span>
-          <!-- Keeps the two words apart in the link's accessible name. -->
-          {{ ' ' }}
-          <span class="text-[12px] tracking-[.14em] text-ink-muted uppercase">{{ site.logo.tagline }}</span>
-        </span>
+        <BrandLogo />
       </a>
 
       <!-- The name stays the same whether the menu is open or closed; aria-expanded tells which (D-010). -->

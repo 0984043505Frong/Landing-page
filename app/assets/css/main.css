@@ -16,6 +16,18 @@
   }
 }
 
+/*
+ * Light tints mixed from theme colours (design spec 2.2), so they follow a change of theme:
+ * the background of a form field with an error, and the circle behind the thank-you icon.
+ */
+@utility bg-danger-tint {
+  background-color: color-mix(in srgb, var(--color-danger) 5%, var(--color-surface));
+}
+
+@utility bg-success-tint {
+  background-color: color-mix(in srgb, var(--color-success) 12%, var(--color-surface));
+}
+
 @layer base {
   html {
     /* Glide to a section after a click on an in-page link, unless the visitor asked for less motion. */

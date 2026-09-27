@@ -6,11 +6,12 @@ the rest of the repository is not covered by them.
 ## Lucide icons
 
 The inline SVG icons in `app/components/icons/` are copied from
-[lucide-static](https://www.npmjs.com/package/lucide-static) 1.48.0 ([lucide.dev](https://lucide.dev)).
-Each icon file names its source icon.
+[lucide-static](https://www.npmjs.com/package/lucide-static) 1.48.0 ([lucide.dev](https://lucide.dev)),
+except `IconLine.vue` (see Simple Icons below). Each icon file names its source icon.
 
 Some Lucide icons are derived from the Feather project. Of the icons used here, these are:
-`check`, `chevron-right`, `clock` and `x` (MIT licence below).
+`check`, `chevron-down`, `chevron-right`, `circle-alert` (listed under its former name
+`alert-circle` in the Lucide licence), `clock` and `x` (MIT licence below).
 
 ```text
 ISC License
@@ -55,3 +56,13 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Simple Icons
+
+The LINE logo in `app/components/icons/IconLine.vue` is copied from
+[Simple Icons](https://simpleicons.org) 16.33.0 (icon `line`), released under
+[CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/).
+
+The LINE name and logo are trademarks of their owner. CC0 does not cover trademark rights.
+This demo site shows the logo only to mark where a client's LINE button would go; its LINE
+buttons lead to sections of this page, not to any LINE account.

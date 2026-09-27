@@ -14,6 +14,7 @@ import { joinPhrases } from '~/utils/phrases'
         heading-id="trainer-service-heading"
         :heading="stepsSection.heading"
         :intro="stepsSection.intro"
+        class="mb-8 lg:mb-12"
       />
       <!-- 1 column on phones, 2 × 2 from 768px, 4 in a row from 1024px (design spec 4.7). -->
       <ol

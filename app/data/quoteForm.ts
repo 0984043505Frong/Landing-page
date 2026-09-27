@@ -1,7 +1,10 @@
 import type { QuoteFormContent } from '../types/content'
 
 // Text of the "request a quote" form. The validation rules are in app/utils/validateQuote.ts.
+// Some texts are lists of phrases: a line may break only between two phrases (see ThaiText in
+// types/content.ts).
 export const quoteForm = {
+  title: ['กรอกข้อมูล', 'เพื่อขอใบเสนอราคา'],
   requiredNote: 'ช่องที่มีเครื่องหมาย * จำเป็นต้องกรอก',
   optionalLabel: 'ไม่บังคับ',
   fields: {
@@ -28,7 +31,8 @@ export const quoteForm = {
     },
     phone: {
       required: 'กรุณากรอกเบอร์โทร',
-      invalid: 'กรุณากรอกเบอร์โทรให้ถูกต้อง เช่น 08x-xxx-xxxx หรือ 02-xxx-xxxx',
+      // Each example format stays in one phrase, so a line never breaks inside it.
+      invalid: ['กรุณากรอกเบอร์โทร', 'ให้ถูกต้อง ', 'เช่น 08x-xxx-xxxx ', 'หรือ 02-xxx-xxxx'],
     },
     course: {
       required: 'กรุณาเลือกหลักสูตรที่สนใจ',
@@ -39,9 +43,10 @@ export const quoteForm = {
     },
   },
   submitLabel: 'ส่งคำขอใบเสนอราคา',
+  // The thank-you text chosen by the site owner (N13). Joined, the phrases give it back exactly.
   success: {
-    message: 'ขอบคุณที่สนใจ BrightPath Academy ทีมงานจะติดต่อกลับภายใน 1 วันทำการ',
-    note: '(เว็บไซต์ตัวอย่าง — ข้อมูลในฟอร์มไม่ได้ถูกส่งจริง)',
+    message: ['ขอบคุณที่สนใจ ', 'BrightPath Academy ', 'ทีมงานจะติดต่อกลับ', 'ภายใน 1 วันทำการ'],
+    note: ['(เว็บไซต์ตัวอย่าง — ', 'ข้อมูลในฟอร์ม', 'ไม่ได้ถูกส่งจริง)'],
     resetLabel: 'ส่งคำขออีกครั้ง',
   },
 } satisfies QuoteFormContent

@@ -1,8 +1,23 @@
 import type { Contact, ContactSection } from '../types/content'
 
+// Heading, intro and highlights are lists of phrases: a line may break only between two
+// phrases (see ThaiText in types/content.ts).
 export const contactSection = {
-  heading: 'ติดต่อขอใบเสนอราคา',
-  intro: 'บอกเราว่าทีมของคุณอยากพัฒนาทักษะด้านไหน ทีมงานจะติดต่อกลับพร้อมใบเสนอราคาภายใน 1 วันทำการ',
+  heading: ['ติดต่อ', 'ขอใบเสนอราคา'],
+  intro: [
+    'บอกเราว่า',
+    'ทีมของคุณ',
+    'อยากพัฒนาทักษะ',
+    'ด้านไหน ',
+    'ทีมงานจะติดต่อกลับ',
+    'พร้อมใบเสนอราคา',
+    'ภายใน 1 วันทำการ',
+  ],
+  highlights: [
+    ['ปรับเนื้อหา', 'และระยะเวลา', 'ได้ตามโจทย์'],
+    ['อบรมได้ทั้งแบบ ', 'Onsite และ Online'],
+    ['เลือกวิทยากรได้', 'ก่อนยืนยันวันอบรม'],
+  ],
   phoneLabel: 'โทร',
   emailLabel: 'อีเมล',
 } satisfies ContactSection

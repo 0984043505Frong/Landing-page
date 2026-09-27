@@ -21,7 +21,10 @@ export default defineNuxtConfig({
       htmlAttrs: { lang: 'th' },
       link: [
         // Nuxt does not add the base URL to files in public/, so join it by hand.
+        // Without the apple-touch-icon link, iOS looks for the icon at the root of the domain,
+        // outside this site's sub-path. Both images come from scripts/generate-brand-images.mjs.
         { rel: 'icon', type: 'image/svg+xml', href: `${baseURL}favicon.svg` },
+        { rel: 'apple-touch-icon', href: `${baseURL}apple-touch-icon.png` },
       ],
     },
   },

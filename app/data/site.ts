@@ -56,6 +56,11 @@ export const site = {
     note: ['ทีมงานติดต่อกลับ', 'ภายใน 1 วันทำการ'],
   },
   footer: {
-    note: 'เว็บไซต์ตัวอย่างเพื่อแสดงผลงาน · แบรนด์และข้อมูลเป็นสมมติ',
+    about: 'ศูนย์ฝึกอบรมองค์กรและบริการจัดหาวิทยากร สำหรับทีม HR ที่ต้องการผลลัพธ์ที่วัดได้',
+    navTitle: 'เมนู',
+    contactTitle: 'ติดต่อ',
+    copyright: '© 2026 BrightPath Academy',
+    // The disclaimer that the footer must show (N11). Joined, the phrases give it back exactly.
+    note: ['เว็บไซต์ตัวอย่าง', 'เพื่อแสดงผลงาน · ', 'แบรนด์และข้อมูล', 'เป็นสมมติ'],
   },
 } satisfies Site

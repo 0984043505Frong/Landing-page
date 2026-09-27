@@ -28,7 +28,7 @@ export interface AnchorLink {
 /** Heading and optional intro text shown at the top of a section. */
 export interface SectionHeading {
   heading: ThaiText
-  intro?: string
+  intro?: ThaiText
 }
 
 export interface Site {
@@ -75,8 +75,15 @@ export interface Site {
     note: ThaiText
   }
   footer: {
+    /** Short description under the logo. */
+    about: ThaiText
+    /** Title of the footer menu. It also names that menu for screen readers. */
+    navTitle: string
+    /** Title of the column with the phone number and the email address. */
+    contactTitle: string
+    copyright: string
     /** Says that the brand and its data are fictional. */
-    note: string
+    note: ThaiText
   }
 }
 
@@ -134,11 +141,13 @@ export interface Trainer {
 
 export interface Faq {
   id: string
-  question: string
-  answer: string
+  question: ThaiText
+  answer: ThaiText
 }
 
 export interface ContactSection extends SectionHeading {
+  /** Short selling points listed under the intro, each with a check mark. */
+  highlights: ThaiText[]
   phoneLabel: string
   emailLabel: string
 }
@@ -164,11 +173,13 @@ export interface FormFieldText {
 }
 
 /** A message for every error code of every field, so no error can show up without text. */
-export type QuoteErrorMessages = { [Field in QuoteField]: Record<QuoteErrorCodes[Field], string> }
+export type QuoteErrorMessages = { [Field in QuoteField]: Record<QuoteErrorCodes[Field], ThaiText> }
 
 export interface QuoteFormContent {
+  /** Heading of the form card. It also names the form for screen readers. */
+  title: ThaiText
   /** Explains the marker on required fields. */
-  requiredNote: string
+  requiredNote: ThaiText
   /** Shown next to the label of an optional field. */
   optionalLabel: string
   fields: Record<QuoteField, FormFieldText>
@@ -178,8 +189,10 @@ export interface QuoteFormContent {
   submitLabel: string
   /** Shown after a successful submit, in place of the form. */
   success: {
-    message: string
-    note: string
+    message: ThaiText
+    /** Smaller second line under the message. */
+    note: ThaiText
+    /** Button that brings back an empty form. */
     resetLabel: string
   }
 }

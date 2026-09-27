@@ -38,4 +38,6 @@ useHead({
     <ContactSection />
   </main>
   <SiteFooter />
+  <!-- Last in the page, so keyboard users reach it after the footer (design spec 4.12). -->
+  <FloatingLineButton />
 </template>
