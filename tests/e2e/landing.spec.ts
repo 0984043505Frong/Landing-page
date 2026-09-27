@@ -18,7 +18,7 @@ import { joinPhrases } from '../../app/utils/phrases'
  * Each test name starts with what it checks, as numbered in the project records:
  * - 1, 3–16: the test ideas of the stack spec (section 10), with the requirement (N…) or
  *   decision (D-…) behind them;
- * - DA7–DA9: design checks of the design spec (section 7).
+ * - DA4, DA7–DA9: design checks of the design spec (section 7).
  *
  * Numbers of cards and questions come from app/data/, never from fixed counts (D-017): adding
  * or removing a course, a trainer or a question needs no change here.
@@ -37,7 +37,7 @@ const VIEWPORTS = [
 /** Base path of the site, e.g. '/Landing-page/'. */
 const basePath = new URL(site.url).pathname
 
-/** An in-page link stops its target this far from the top of the window (scroll-margin-top in main.css). */
+/** An in-page link stops its target this far from the top of the window (scroll-padding-top in main.css). */
 const LINK_TARGET_TOP = 80
 
 /** Sections of the page, in the order of the project brief. */
@@ -142,6 +142,35 @@ async function expectFullyInView(page: Page, locator: Locator) {
   expect(box.y + box.height).toBeLessThanOrEqual(page.viewportSize()!.height)
 }
 
+/**
+ * Presses `key` again and again, and checks where each focused element sits (focusedElementPlacement).
+ * Stops when the focus leaves the page or comes back to an element it has already been on, and,
+ * going backwards, when it reaches the header. `startIndex` is the element the walk starts from.
+ */
+async function walkFocus(page: Page, key: 'Tab' | 'Shift+Tab', startIndex?: number) {
+  const where = `${key} at ${page.viewportSize()!.width}px`
+  const visited = new Set(startIndex === undefined ? [] : [startIndex])
+  const problems: string[] = []
+  let checked = 0
+  let lastIndex = startIndex
+  let reachedHeader = false
+  // Each press moves to a new element, so the walk ends after at most one press per element.
+  for (let press = 0; press < 500; press++) {
+    await page.keyboard.press(key)
+    const focus = await page.evaluate(focusedElementPlacement, contact.line.floatingAriaLabel)
+    if (!focus || visited.has(focus.index)) break
+    visited.add(focus.index)
+    lastIndex = focus.index
+    if (key === 'Shift+Tab' && focus.inHeader) {
+      reachedHeader = true
+      break
+    }
+    if (focus.checked) checked++
+    problems.push(...focus.problems.map(problem => `${focus.name} (${where}): ${problem}`))
+  }
+  return { checked, problems, lastIndex, reachedHeader }
+}
+
 /** Number of columns of a grid, from the distinct left edges of its items. */
 async function countColumns(items: Locator) {
   const lefts = await items.evaluateAll(elements => elements.map(element => Math.round(element.getBoundingClientRect().left)))
@@ -170,13 +199,28 @@ function hexToRgb(hex: string) {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Design spec, appendix 1 (DA9). Thai text is shown as nowrap phrase spans (<PhraseText>): no
- * element that holds phrases may have text outside them, or be wider than its box.
+ * DA9. Thai text is shown as nowrap phrase spans (<PhraseText>), so a line breaks only between
+ * two phrases. Two sets of checks:
+ *
+ * 1. The script of the design spec, appendix 1: no element that holds phrases may have text
+ *    outside them, or be wider than its box; and the page must not scroll sideways.
+ * 2. Added by D-021, not in that script: every phrase on screen must lie inside the window and
+ *    inside every ancestor that clips its content sideways (computed `overflow-x` other than
+ *    `visible`), give or take 1px. Set 1 misses a phrase too long for its line when the element
+ *    that holds it grows with it instead of overflowing (a grid or flex item) inside a section
+ *    that cuts off what sticks out (`overflow: hidden`, like the hero): the heading is cut at the
+ *    edge of the window, yet its box does not overflow and the page does not scroll (L-036).
+ *
+ * Both skip hidden phrases (a closed answer, the other state of the form) and the ones in a
+ * visually hidden (sr-only) box, which is 1px wide and clips them on purpose.
  */
 function checkThaiPhrases() {
   const isPhrase = (node: Element) => node.tagName === 'SPAN' && getComputedStyle(node).whiteSpace === 'nowrap'
-  const containers = new Set([...document.querySelectorAll('span')].filter(isPhrase).map(span => span.parentElement!))
+  const phrases = [...document.querySelectorAll('span')].filter(isPhrase)
+  const containers = new Set(phrases.map(span => span.parentElement!))
   const problems: { text: string, issue: string }[] = []
+
+  // 1. Design spec, appendix 1.
   for (const element of containers) {
     if (!element.getClientRects().length) continue // hidden: a closed answer, the other state of the form
     const box = getComputedStyle(element).display === 'inline' ? element.closest('p, li, h1, h2, h3, summary, div, a, button') : element
@@ -187,11 +231,83 @@ function checkThaiPhrases() {
     }
     if (box && box.scrollWidth > box.clientWidth + 1) problems.push({ text, issue: 'overflows its box' })
   }
+
+  // 2. D-021: no phrase is cut off by the window or by an ancestor that clips it.
+  const windowWidth = document.documentElement.clientWidth
+  const edges = (left: number, right: number) => `${left.toFixed(1)} to ${right.toFixed(1)}`
+  let phraseSpans = 0
+  for (const span of phrases) {
+    if (!span.getClientRects().length) continue // hidden
+    const clippingAncestors: Element[] = []
+    for (let ancestor = span.parentElement; ancestor; ancestor = ancestor.parentElement) {
+      if (getComputedStyle(ancestor).overflowX !== 'visible') clippingAncestors.push(ancestor)
+    }
+    if (clippingAncestors.some(ancestor => ancestor.getBoundingClientRect().width <= 1)) continue // visually hidden (sr-only)
+    phraseSpans++
+    const text = span.textContent!.trim().slice(0, 40)
+    const { left, right } = span.getBoundingClientRect()
+    if (left < -1 || right > windowWidth + 1) {
+      problems.push({ text, issue: `cut off by the window: phrase ${edges(left, right)}, window 0 to ${windowWidth}` })
+    }
+    for (const ancestor of clippingAncestors) {
+      const box = ancestor.getBoundingClientRect()
+      if (left < box.left - 1 || right > box.right + 1) {
+        const name = `${ancestor.tagName.toLowerCase()}${ancestor.id ? `#${ancestor.id}` : ''}`
+        problems.push({ text, issue: `cut off by ${name}: phrase ${edges(left, right)}, ${name} ${edges(box.left, box.right)}` })
+      }
+    }
+  }
+
   return {
     horizontalScroll: document.documentElement.scrollWidth > window.innerWidth,
     phraseContainers: containers.size,
+    phraseSpans,
     problems,
   }
+}
+
+/**
+ * DA4 (D-020, WCAG 2.2 SC 2.4.11): where the element that has the keyboard focus sits in the
+ * window. Returns null when no element of the page has the focus (after the last one).
+ *
+ * Elements of the header, the skip link (shown over the header on purpose) and the floating LINE
+ * button (fixed in a corner) are not checked. Any other focused element must be below the real
+ * bottom edge of the header and above the bottom of the window, and nothing (the header, the
+ * floating button or anything else) may cover its centre; 1px of tolerance for rounding.
+ *
+ * A <textarea> is the one exception to the bottom edge: when it gets the focus, Chromium scrolls
+ * only as far as its caret, so a tall box can stay partly below the window (the message field at
+ * 375px ends 20px below it after Tab). Its top edge and centre are still checked.
+ */
+function focusedElementPlacement(floatingButtonLabel: string) {
+  const element = document.activeElement
+  if (!element || element === document.body) return null
+  const header = document.getElementById('site-header')!
+  const index = [...document.querySelectorAll('*')].indexOf(element)
+  const label = (element.getAttribute('aria-label') ?? element.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 40)
+  const name = `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ''} "${label}"`
+  const inHeader = header.contains(element)
+  const isFloatingButton = (node: Element) => node.closest('a')?.getAttribute('aria-label') === floatingButtonLabel
+  if (inHeader || element.matches('a[href="#main"]') || isFloatingButton(element)) {
+    return { index, name, inHeader, checked: false, problems: [] }
+  }
+
+  const box = element.getBoundingClientRect()
+  const headerBottom = header.getBoundingClientRect().bottom
+  const problems: string[] = []
+  if (box.top < headerBottom - 1) {
+    problems.push(`top ${box.top.toFixed(1)} is above the bottom of the header, ${headerBottom.toFixed(1)}`)
+  }
+  if (box.bottom > window.innerHeight + 1 && element.tagName !== 'TEXTAREA') {
+    problems.push(`bottom ${box.bottom.toFixed(1)} is below the window, ${window.innerHeight}`)
+  }
+  const onTop = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+  if (!onTop) problems.push('its centre is outside the window')
+  else if (!element.contains(onTop)) {
+    const cover = header.contains(onTop) ? 'the header' : isFloatingButton(onTop) ? 'the floating LINE button' : onTop.tagName.toLowerCase()
+    problems.push(`its centre is covered by ${cover}`)
+  }
+  return { index, name, inHeader, checked: true, problems }
 }
 
 /** Design spec, appendix 2 (DA8): text and controls under the floating LINE button. */
@@ -723,6 +839,23 @@ for (const viewport of VIEWPORTS) {
       await expect(primaryButton).toHaveCSS('color', hexToRgb(tokens['brand-900']!))
     })
 
+    test('DA4 (D-020) with Tab and with Shift+Tab, no focused element is under the header or the floating LINE button', async ({ page }) => {
+      await openPage(page)
+
+      // Tab from the top of the page past its last element.
+      const forward = await walkFocus(page, 'Tab')
+      expect(forward.checked, 'elements checked with Tab').toBeGreaterThan(0)
+
+      // Shift+Tab from the last element back to the header.
+      const last = forward.lastIndex!
+      await page.evaluate(index => (document.querySelectorAll('*')[index] as HTMLElement).focus(), last)
+      const backward = await walkFocus(page, 'Shift+Tab', last)
+      expect(backward.checked, 'elements checked with Shift+Tab').toBeGreaterThan(0)
+      expect(backward.reachedHeader, 'Shift+Tab gets back to the header').toBe(true)
+
+      expect([...forward.problems, ...backward.problems]).toEqual([])
+    })
+
     test('DA7 the hero buttons are 12px apart when stacked on phones, 16px apart side by side from 640px', async ({ page }) => {
       await openPage(page)
       const hero = page.locator('#hero')
@@ -742,12 +875,13 @@ for (const viewport of VIEWPORTS) {
       }
     })
 
-    test('DA9 Thai text breaks only between phrases, with no horizontal scrolling (all answers open, form errors, thank-you)', async ({ page }) => {
+    test('DA9 Thai text breaks only between phrases, no phrase is cut off, and the page does not scroll sideways (all answers open, form errors, thank-you)', async ({ page }) => {
       await openPage(page)
       const expectPhrasesFit = async (state: string) => {
         const result = await page.evaluate(checkThaiPhrases)
-        // Some phrase lists must be on the page, or the check proves nothing.
+        // Some phrases must be on the page, or the check proves nothing.
         expect(result.phraseContainers, state).toBeGreaterThan(0)
+        expect(result.phraseSpans, state).toBeGreaterThan(0)
         expect(result.problems, state).toEqual([])
         expect(result.horizontalScroll, state).toBe(false)
       }

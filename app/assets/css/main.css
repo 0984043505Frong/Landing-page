@@ -30,6 +30,17 @@
 
 @layer base {
   html {
+    /*
+     * Room for the sticky header (64px plus its 1px bottom border): whenever the page scrolls
+     * something into view, it keeps it out of the top 80px of the window, below the header
+     * instead of under it. That covers the target of an in-page link (a section, the quote form
+     * card), which stops 80px from the top, and any element that gets keyboard focus with Tab or
+     * Shift+Tab. Set once here, on the element that scrolls, so it also covers elements without
+     * an id. Do not give the targets a top scroll margin as well: the two add up, and a link
+     * would then stop 160px from the top.
+     */
+    scroll-padding-top: 80px;
+
     /* Glide to a section after a click on an in-page link, unless the visitor asked for less motion. */
     @media (prefers-reduced-motion: no-preference) {
       scroll-behavior: smooth;
@@ -47,14 +58,6 @@
     background-color: var(--color-surface);
     color: var(--color-ink);
     line-height: 1.7;
-  }
-
-  /*
-   * Whatever an in-page link leads to (a section, the quote form card) stops 80px from the top,
-   * below the sticky header (64px plus its 1px bottom border) instead of under it.
-   */
-  [id] {
-    scroll-margin-top: 80px;
   }
 
   /* Visible keyboard focus on everything that can be focused (design spec 4.0). */

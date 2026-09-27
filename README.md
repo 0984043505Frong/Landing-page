@@ -21,7 +21,10 @@ Live site: <https://0984043505frong.github.io/Landing-page/>
 
 ## Run it
 
-You need [Node.js](https://nodejs.org) 22.19 or later (see `.nvmrc`) and npm.
+You need [Node.js](https://nodejs.org) 22.19 or later and npm; `node -v` shows which Node you
+have. 22.19 is the minimum, set in `engines` in `package.json`. `.nvmrc` holds only `22`: a
+version manager such as nvm, and the deploy workflow, take the latest release of Node 22 from it,
+which meets that minimum.
 
 ```bash
 npm ci               # install the exact versions from package-lock.json
@@ -161,7 +164,9 @@ and no link to LINE.
   a form service such as [Formspree](https://formspree.io). Today the form only checks the
   fields and shows the thank-you message; nothing is sent (N13). Once it sends, change the
   thank-you message's second line, "(เว็บไซต์ตัวอย่าง — ข้อมูลในฟอร์มไม่ได้ถูกส่งจริง)"
-  (`quoteForm.success.note` in `app/data/quoteForm.ts`), and its test (N13).
+  (`quoteForm.success.note` in `app/data/quoteForm.ts`), and its test (N13). Change the unit
+  test "resolves without sending anything over the network" in
+  `tests/unit/submitQuote.test.ts` as well: it expects `submitQuote()` never to call `fetch`.
 - **Site address:** `site.url` in `app/data/site.ts` is the only place for it. Its path
   (`/Landing-page/`) becomes `app.baseURL` in `nuxt.config.ts`, so every file of the site is
   requested under that path, and `og:url`, the canonical link and `og:image` are built from it.
