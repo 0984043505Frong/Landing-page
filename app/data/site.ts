@@ -15,23 +15,45 @@ export const site = {
   locale: 'th_TH',
   header: {
     navLabel: 'เมนูหลัก',
-    openMenuLabel: 'เปิดเมนู',
-    closeMenuLabel: 'ปิดเมนู',
+    menuButtonLabel: 'เมนู',
+    skipLinkLabel: 'ข้ามไปที่เนื้อหาหลัก',
+  },
+  logo: {
+    mark: 'BP',
+    name: 'BrightPath',
+    tagline: 'Academy',
   },
   nav: [
-    { label: 'เกี่ยวกับเรา', href: '#stats' },
     { label: 'หลักสูตร', href: '#courses' },
     { label: 'จัดหาวิทยากร', href: '#trainer-service' },
     { label: 'วิทยากร', href: '#trainers' },
     { label: 'คำถามที่พบบ่อย', href: '#faq' },
     { label: 'ติดต่อเรา', href: '#contact' },
   ],
+  // Lists of phrases: a line may break only between two phrases (see ThaiText in types/content.ts).
+  // The hero was measured so that the stats card clears the floating LINE button on a 375×812
+  // screen: after changing this text, check that first screen again.
   hero: {
-    heading: 'หลักสูตรอบรมองค์กรและวิทยากรมืออาชีพ ที่ออกแบบให้ตรงกับทีมของคุณ',
-    subheading:
-      'BrightPath Academy ช่วยฝ่าย HR วางแผนการอบรมพนักงานครบในที่เดียว ตั้งแต่เลือกหลักสูตร จัดหาวิทยากรที่เหมาะกับงาน จนถึงวันอบรมจริง ทั้งแบบ Onsite และ Online',
+    eyebrow: ['ศูนย์ฝึกอบรมองค์กร · ', 'บริการจัดหาวิทยากร'],
+    heading: ['อบรมพนักงานให้', 'ได้ผลจริง ', 'ด้วยหลักสูตร', 'และวิทยากรที่ใช่'],
+    subheading: [
+      'หลักสูตรอบรมองค์กร',
+      'ทั้งแบบ ',
+      'Onsite ',
+      'และ ',
+      'Online ',
+      'ปรับเนื้อหา',
+      'ตามโจทย์',
+      'ของทีมคุณ ',
+      'พร้อม',
+      'บริการ',
+      'จัดหาวิทยากร',
+      'เฉพาะทาง',
+      'ในที่เดียว',
+    ],
     primaryCta: { label: 'ขอใบเสนอราคา', href: '#contact' },
     secondaryCta: { label: 'ดูหลักสูตร', href: '#courses' },
+    note: ['ทีมงานติดต่อกลับ', 'ภายใน 1 วันทำการ'],
   },
   footer: {
     note: 'เว็บไซต์ตัวอย่างเพื่อแสดงผลงาน · แบรนด์และข้อมูลเป็นสมมติ',

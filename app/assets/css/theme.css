@@ -1,45 +1,53 @@
 /*
- * The only place where colours, the font and the card radius are defined.
+ * Design tokens: the only place where colours, the font, corner radii and shadows are defined (N9).
  * To re-theme the site, change the values here and rebuild.
  *
- * Each token becomes a Tailwind utility (bg-brand-900, text-ink, ...) and a CSS variable
- * (var(--color-brand-900)). `static` keeps every variable in the output even when no
- * utility uses it, and `--color-*: initial` removes Tailwind's default palette, so
- * colours outside this file cannot be used by accident.
+ * The block below is the final design spec (LP-003, section 2.9), copied as it is.
+ * Each token becomes a Tailwind utility (bg-brand-900, text-ink, rounded-card, shadow-card, ...) and a
+ * CSS variable (var(--color-brand-900)). `static` keeps every variable in the output even when no
+ * utility uses it, and `--color-*: initial` removes Tailwind's default palette, so colours outside
+ * this file cannot be used by accident.
  */
 @theme static {
   --color-*: initial;
 
   --color-white: #ffffff;
 
-  /* Brand (navy) — placeholder until LP-003 */
-  --color-brand-50: #eef3fb;
-  --color-brand-100: #d7e2f4;
-  --color-brand-700: #1f3d73;
-  --color-brand-900: #10213f;
+  /* Brand (navy) — D-011 */
+  --color-brand-50: #eef3f9;
+  --color-brand-100: #dce6f2;
+  --color-brand-700: #1d4e89;
+  --color-brand-800: #14365f;
+  --color-brand-900: #0b2545;
 
-  /* Accent (amber/orange) — placeholder until LP-003 */
-  --color-accent-400: #fbbf3c;
-  --color-accent-500: #f59f0b;
-  --color-accent-600: #d97a06;
+  /* Accent (orange) — D-011. Orange text on light backgrounds: accent-700 only. */
+  --color-accent-400: #ffa94d;
+  --color-accent-500: #f7941d;
+  --color-accent-600: #e5830f;
+  --color-accent-700: #a14b00;
 
-  /* Surfaces, text and borders — placeholder until LP-003 */
+  /* Surfaces, text and borders */
   --color-surface: #ffffff;
-  --color-surface-muted: #f3f5f8;
-  --color-ink: #1b2432;
-  --color-ink-muted: #56607a;
-  --color-border: #d6dce5;
+  --color-surface-muted: #f2f5f9;
+  --color-ink: #16202e;
+  --color-ink-muted: #4a5667;
+  --color-border: #d6dee8;
+  --color-border-strong: #7a8699;
 
-  /* Form feedback — placeholder until LP-003 */
+  /* Form feedback */
   --color-danger: #b42318;
   --color-success: #067647;
 
-  /* LINE brand colour, not part of the client theme */
+  /* LINE brand colour, not part of the client theme. Never put white text on it (D-006). */
   --color-line-green: #06c755;
+  --color-line-green-700: #00873c;
 
-  /* Font — placeholder until LP-003 */
   --font-sans: "Noto Sans Thai", ui-sans-serif, system-ui, sans-serif;
 
-  /* Card corners — placeholder until LP-003 */
-  --radius-card: 0.75rem;
+  --radius-card: 12px;
+  --radius-button: 10px;
+  --radius-input: 8px;
+
+  --shadow-card: 0 1px 2px color-mix(in srgb, var(--color-brand-900) 8%, transparent), 0 12px 32px color-mix(in srgb, var(--color-brand-900) 12%, transparent);
+  --shadow-fab: 0 6px 16px color-mix(in srgb, var(--color-ink) 30%, transparent);
 }

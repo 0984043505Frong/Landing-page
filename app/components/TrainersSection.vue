@@ -5,29 +5,27 @@ import { trainers, trainersSection } from '~/data/trainers'
 <template>
   <section
     id="trainers"
+    class="bg-surface-muted py-16 lg:py-24"
     aria-labelledby="trainers-heading"
   >
-    <h2 id="trainers-heading">
-      {{ trainersSection.heading }}
-    </h2>
-    <p>{{ trainersSection.intro }}</p>
-    <ul>
-      <li
-        v-for="trainer in trainers"
-        :key="trainer.id"
+    <div class="page-container">
+      <SectionHeader
+        heading-id="trainers-heading"
+        :heading="trainersSection.heading"
+        :intro="trainersSection.intro"
+      />
+      <!-- 1 column on phones, 2 from 768px (design spec 4.8). -->
+      <ul
+        role="list"
+        class="grid gap-5 md:grid-cols-2"
       >
-        <span aria-hidden="true">{{ trainer.initials }}</span>
-        <h3>{{ trainer.name }}</h3>
-        <p>{{ trainer.role }}</p>
-        <ul>
-          <li
-            v-for="skill in trainer.expertise"
-            :key="skill"
-          >
-            {{ skill }}
-          </li>
-        </ul>
-      </li>
-    </ul>
+        <li
+          v-for="trainer in trainers"
+          :key="trainer.id"
+        >
+          <TrainerCard :trainer="trainer" />
+        </li>
+      </ul>
+    </div>
   </section>
 </template>

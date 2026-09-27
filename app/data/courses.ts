@@ -1,7 +1,7 @@
 import type { Course, CoursesSection } from '../types/content'
 
 export const coursesSection = {
-  heading: 'หลักสูตรยอดนิยม',
+  heading: ['หลักสูตรยอดนิยม'],
   intro: 'หลักสูตร In-house ที่ปรับเนื้อหาให้เข้ากับองค์กรของคุณได้ เลือกอบรมที่บริษัท (Onsite) หรือออนไลน์ (Online)',
   formatLabels: {
     onsite: 'Onsite',
@@ -11,10 +11,13 @@ export const coursesSection = {
 
 // Add, edit or remove courses here. The course cards and the quote form's course
 // select are both built from this list, so no component needs to change.
+// `title` is a list of phrases: a line may break only between two phrases (see ThaiText
+// in types/content.ts). `icon` is a Lucide icon name from CourseIconName.
 export const courses = [
   {
     id: 'leadership-essentials',
-    title: 'ภาวะผู้นำสำหรับหัวหน้างานยุคใหม่',
+    title: ['ภาวะผู้นำสำหรับ', 'หัวหน้างานยุคใหม่'],
+    icon: 'users',
     duration: '1 วัน (6 ชั่วโมง)',
     formats: ['onsite', 'online'],
     topics: [
@@ -25,7 +28,8 @@ export const courses = [
   },
   {
     id: 'effective-communication',
-    title: 'การสื่อสารและการนำเสนออย่างมีประสิทธิภาพ',
+    title: ['การสื่อสาร', 'และการนำเสนอ', 'อย่างมีประสิทธิภาพ'],
+    icon: 'presentation',
     duration: '1 วัน (6 ชั่วโมง)',
     formats: ['onsite', 'online'],
     topics: [
@@ -36,7 +40,8 @@ export const courses = [
   },
   {
     id: 'service-excellence',
-    title: 'การบริการที่เป็นเลิศ (Service Excellence)',
+    title: ['การบริการที่เป็นเลิศ ', '(Service Excellence)'],
+    icon: 'concierge-bell',
     duration: '1 วัน (6 ชั่วโมง)',
     formats: ['onsite'],
     topics: [
@@ -47,7 +52,8 @@ export const courses = [
   },
   {
     id: 'excel-data-analysis',
-    title: 'Excel สำหรับการวิเคราะห์ข้อมูลในงาน',
+    title: ['Excel สำหรับ', 'การวิเคราะห์', 'ข้อมูลในงาน'],
+    icon: 'chart-column',
     duration: '2 วัน (12 ชั่วโมง)',
     formats: ['onsite', 'online'],
     topics: [
@@ -58,7 +64,8 @@ export const courses = [
   },
   {
     id: 'problem-solving',
-    title: 'การคิดวิเคราะห์และแก้ปัญหาอย่างเป็นระบบ',
+    title: ['การคิดวิเคราะห์', 'และแก้ปัญหา', 'อย่างเป็นระบบ'],
+    icon: 'lightbulb',
     duration: '1 วัน (6 ชั่วโมง)',
     formats: ['onsite', 'online'],
     topics: [
@@ -69,7 +76,8 @@ export const courses = [
   },
   {
     id: 'generative-ai-at-work',
-    title: 'ใช้ Generative AI ช่วยทำงานในองค์กร',
+    title: ['ใช้ Generative AI ', 'ช่วยทำงานในองค์กร'],
+    icon: 'sparkles',
     duration: 'ครึ่งวัน (3 ชั่วโมง)',
     formats: ['online', 'onsite'],
     topics: [

@@ -1,0 +1,92 @@
+<!--
+  Decorative illustration beside the hero text from 1024px: steps rising to a star.
+  Original artwork from the design mockup (LP-003); every colour comes from the theme.
+-->
+<template>
+  <svg
+    viewBox="0 0 480 420"
+    aria-hidden="true"
+    focusable="false"
+  >
+    <circle
+      class="fill-none stroke-brand-800 stroke-2"
+      cx="300"
+      cy="190"
+      r="176"
+    />
+    <circle
+      class="fill-none stroke-brand-800 stroke-2"
+      cx="300"
+      cy="190"
+      r="124"
+    />
+    <rect
+      class="fill-brand-800"
+      x="40"
+      y="300"
+      width="84"
+      height="100"
+      rx="10"
+    />
+    <rect
+      class="fill-brand-800"
+      x="148"
+      y="236"
+      width="84"
+      height="164"
+      rx="10"
+    />
+    <rect
+      class="fill-brand-800"
+      x="256"
+      y="168"
+      width="84"
+      height="232"
+      rx="10"
+    />
+    <rect
+      class="fill-brand-700"
+      x="364"
+      y="100"
+      width="84"
+      height="300"
+      rx="10"
+    />
+    <polyline
+      class="fill-none stroke-accent-500 stroke-4"
+      points="82,268 190,204 298,136 406,64"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <circle
+      class="fill-brand-100"
+      cx="82"
+      cy="268"
+      r="9"
+    />
+    <circle
+      class="fill-brand-100"
+      cx="190"
+      cy="204"
+      r="9"
+    />
+    <circle
+      class="fill-brand-100"
+      cx="298"
+      cy="136"
+      r="9"
+    />
+    <circle
+      class="fill-accent-500/28"
+      cx="406"
+      cy="64"
+      r="28"
+    />
+    <circle
+      class="fill-accent-500"
+      cx="406"
+      cy="64"
+      r="15"
+    />
+  </svg>
+</template>

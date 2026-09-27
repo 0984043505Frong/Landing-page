@@ -26,6 +26,7 @@ useHead({
 </script>
 
 <template>
+  <SkipLink />
   <SiteHeader />
   <main id="main">
     <HeroSection />

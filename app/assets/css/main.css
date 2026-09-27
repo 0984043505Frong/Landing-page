@@ -1,9 +1,55 @@
 @import "tailwindcss";
 @import "./theme.css";
 
+/*
+ * Width of the page content (design spec 2.5): 20px side padding on phones, 32px from 768px,
+ * and at most 1200px wide including the padding, centred on wide screens.
+ */
+@utility page-container {
+  width: 100%;
+  max-width: 1200px;
+  margin-inline: auto;
+  padding-inline: 20px;
+
+  @variant md {
+    padding-inline: 32px;
+  }
+}
+
 @layer base {
+  html {
+    /* Glide to a section after a click on an in-page link, unless the visitor asked for less motion. */
+    @media (prefers-reduced-motion: no-preference) {
+      scroll-behavior: smooth;
+    }
+  }
+
+  /* The page behind the open mobile menu does not scroll (SiteHeader, useMobileMenu). */
+  html.menu-open {
+    @variant max-lg {
+      overflow: hidden;
+    }
+  }
+
   body {
     background-color: var(--color-surface);
     color: var(--color-ink);
+    line-height: 1.7;
+  }
+
+  /* Sections reached through a link stop below the sticky header (64px high) instead of under it. */
+  [id] {
+    scroll-margin-top: 80px;
+  }
+
+  /* Visible keyboard focus on everything that can be focused (design spec 4.0). */
+  :focus-visible {
+    outline: 3px solid var(--color-brand-700);
+    outline-offset: 2px;
+  }
+
+  /* On navy backgrounds (hero, footer) the focus ring is orange. */
+  .on-dark :focus-visible {
+    outline-color: var(--color-accent-500);
   }
 }

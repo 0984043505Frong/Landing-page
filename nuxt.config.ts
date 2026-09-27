@@ -9,6 +9,11 @@ const baseURL = new URL(site.url).pathname
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   modules: ['@nuxt/eslint', '@nuxt/fonts'],
+  components: [
+    // Icon components go by their file name (IconMenu), without the folder prefix (IconsIconMenu).
+    { path: '~/components/icons', pathPrefix: false },
+    '~/components',
+  ],
   devtools: { enabled: true },
   app: {
     baseURL,

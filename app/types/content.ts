@@ -6,6 +6,19 @@
  */
 import type { QuoteErrorCodes, QuoteField } from './quote'
 
+/**
+ * Thai text whose line breaks are controlled (D-009).
+ *
+ * - A string: the browser may break the line anywhere its Thai dictionary allows.
+ * - A list of phrases: the line may break only between two phrases, never inside one.
+ *   The phrases are joined exactly as written, so a space between two phrases goes at
+ *   the end of the first one: ['อบรมพนักงานให้', 'ได้ผลจริง ', 'ด้วยหลักสูตร'].
+ *
+ * Show it with the <PhraseText> component. Where plain text is needed (<title>, meta tags,
+ * aria-label, <option>), use joinPhrases() from app/utils/phrases.ts.
+ */
+export type ThaiText = string | readonly string[]
+
 /** A link to a section on the same page, e.g. `#courses`. */
 export interface AnchorLink {
   label: string
@@ -14,7 +27,7 @@ export interface AnchorLink {
 
 /** Heading and optional intro text shown at the top of a section. */
 export interface SectionHeading {
-  heading: string
+  heading: ThaiText
   intro?: string
 }
 
@@ -33,15 +46,33 @@ export interface Site {
   header: {
     /** Accessible name of the main menu. */
     navLabel: string
-    openMenuLabel: string
-    closeMenuLabel: string
+    /**
+     * Name of the mobile menu button. It stays the same whether the menu is open or closed:
+     * the button's aria-expanded tells screen readers which one it is (D-010).
+     */
+    menuButtonLabel: string
+    /** Text of the link that jumps over the header to the main content (the page's first link). */
+    skipLinkLabel: string
+  }
+  /** Text of the logo in the header. `name + ' ' + tagline` is the brand name (`name` above). */
+  logo: {
+    /** Letters inside the square logo mark. */
+    mark: string
+    /** First line of the logo. */
+    name: string
+    /** Second line of the logo, shown in capitals. */
+    tagline: string
   }
   nav: AnchorLink[]
   hero: {
-    heading: string
-    subheading: string
+    /** Small label above the heading. */
+    eyebrow: ThaiText
+    heading: ThaiText
+    subheading: ThaiText
     primaryCta: AnchorLink
     secondaryCta: AnchorLink
+    /** Line under the buttons, e.g. how soon the team gets back to the visitor. */
+    note: ThaiText
   }
   footer: {
     /** Says that the brand and its data are fictional. */
@@ -53,15 +84,25 @@ export interface Stat {
   value: number
   /** Shown right after the value, e.g. '+'. */
   suffix?: string
-  label: string
+  label: ThaiText
 }
 
 export type CourseFormat = 'onsite' | 'online'
 
+/**
+ * Icon of a course card: the name of a Lucide icon (https://lucide.dev/icons).
+ * Only icons that have a component in app/components/CourseIcon.vue are listed here,
+ * so a misspelled or missing icon fails `npm run typecheck`. To offer another icon,
+ * add its name here and its component to CourseIcon.vue.
+ */
+export type CourseIconName = 'users' | 'presentation' | 'concierge-bell' | 'chart-column' | 'lightbulb' | 'sparkles'
+
 export interface Course {
   /** Unique and URL-safe. Also the value of this course in the quote form's course select. */
   id: string
-  title: string
+  /** Card heading. Also the course's name in the quote form: join the phrases there. */
+  title: ThaiText
+  icon: CourseIconName
   duration: string
   formats: CourseFormat[]
   /** Every course card lists exactly three topics. */
@@ -73,15 +114,15 @@ export interface CoursesSection extends SectionHeading {
 }
 
 export interface Step {
-  title: string
-  description: string
+  title: ThaiText
+  description: ThaiText
 }
 
 export interface Trainer {
   id: string
   /** A made-up name. The page never shows real people. */
-  name: string
-  role: string
+  name: ThaiText
+  role: ThaiText
   expertise: string[]
   /**
    * Letters shown in the avatar instead of a photo. Written by hand because a Thai

@@ -5,36 +5,27 @@ import { courses, coursesSection } from '~/data/courses'
 <template>
   <section
     id="courses"
+    class="bg-surface-muted py-16 lg:py-24"
     aria-labelledby="courses-heading"
   >
-    <h2 id="courses-heading">
-      {{ coursesSection.heading }}
-    </h2>
-    <p>{{ coursesSection.intro }}</p>
-    <ul>
-      <li
-        v-for="course in courses"
-        :key="course.id"
+    <div class="page-container">
+      <SectionHeader
+        heading-id="courses-heading"
+        :heading="coursesSection.heading"
+        :intro="coursesSection.intro"
+      />
+      <!-- One card per course in app/data/courses.ts: 1, 2 or 3 columns (design spec 4.6). -->
+      <ul
+        role="list"
+        class="grid gap-5 md:grid-cols-2 lg:grid-cols-3 lg:gap-6"
       >
-        <h3>{{ course.title }}</h3>
-        <p>{{ course.duration }}</p>
-        <ul>
-          <li
-            v-for="format in course.formats"
-            :key="format"
-          >
-            {{ coursesSection.formatLabels[format] }}
-          </li>
-        </ul>
-        <ul>
-          <li
-            v-for="topic in course.topics"
-            :key="topic"
-          >
-            {{ topic }}
-          </li>
-        </ul>
-      </li>
-    </ul>
+        <li
+          v-for="course in courses"
+          :key="course.id"
+        >
+          <CourseCard :course="course" />
+        </li>
+      </ul>
+    </div>
   </section>
 </template>

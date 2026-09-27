@@ -5,8 +5,12 @@ test('menu links scroll to their section and keep a valid URL', async ({ page })
   await page.goto('./')
   const pageUrl = page.url()
 
+  // The default viewport (1280px) shows the full menu in the header (D-012).
+  const menu = page.getByRole('navigation', { name: site.header.navLabel })
+
   for (const link of site.nav) {
-    await page.locator(`#site-header a[href="${link.href}"]`).click()
+    // By name: the header's "request a quote" button also links to #contact.
+    await menu.getByRole('link', { name: link.label, exact: true }).click()
 
     await expect(page.locator(link.href)).toBeInViewport()
     // The URL must stay shareable, e.g. /Landing-page/#faq and never
