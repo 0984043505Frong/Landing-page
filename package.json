@@ -1,0 +1,35 @@
+{
+  "name": "landing-page",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "dev": "nuxt dev",
+    "generate": "nuxt generate --preset github_pages",
+    "preview": "node scripts/stage-preview.mjs && serve .preview -l 4173",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test",
+    "lint": "eslint .",
+    "typecheck": "nuxt typecheck",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@nuxt/fonts": "^0.14.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "nuxt": "^4.5.2",
+    "tailwindcss": "^4.3.3",
+    "vue": "^3.5.43",
+    "vue-router": "^5.3.1"
+  },
+  "devDependencies": {
+    "@nuxt/eslint": "^1.17.0",
+    "@playwright/test": "^1.63.0",
+    "eslint": "^10.11.0",
+    "serve": "^14.2.6",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.2",
+    "vue-tsc": "^3.3.11"
+  }
+}

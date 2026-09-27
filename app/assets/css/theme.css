@@ -1,0 +1,45 @@
+/*
+ * The only place where colours, the font and the card radius are defined.
+ * To re-theme the site, change the values here and rebuild.
+ *
+ * Each token becomes a Tailwind utility (bg-brand-900, text-ink, ...) and a CSS variable
+ * (var(--color-brand-900)). `static` keeps every variable in the output even when no
+ * utility uses it, and `--color-*: initial` removes Tailwind's default palette, so
+ * colours outside this file cannot be used by accident.
+ */
+@theme static {
+  --color-*: initial;
+
+  --color-white: #ffffff;
+
+  /* Brand (navy) — placeholder until LP-003 */
+  --color-brand-50: #eef3fb;
+  --color-brand-100: #d7e2f4;
+  --color-brand-700: #1f3d73;
+  --color-brand-900: #10213f;
+
+  /* Accent (amber/orange) — placeholder until LP-003 */
+  --color-accent-400: #fbbf3c;
+  --color-accent-500: #f59f0b;
+  --color-accent-600: #d97a06;
+
+  /* Surfaces, text and borders — placeholder until LP-003 */
+  --color-surface: #ffffff;
+  --color-surface-muted: #f3f5f8;
+  --color-ink: #1b2432;
+  --color-ink-muted: #56607a;
+  --color-border: #d6dce5;
+
+  /* Form feedback — placeholder until LP-003 */
+  --color-danger: #b42318;
+  --color-success: #067647;
+
+  /* LINE brand colour, not part of the client theme */
+  --color-line-green: #06c755;
+
+  /* Font — placeholder until LP-003 */
+  --font-sans: "Noto Sans Thai", ui-sans-serif, system-ui, sans-serif;
+
+  /* Card corners — placeholder until LP-003 */
+  --radius-card: 0.75rem;
+}
