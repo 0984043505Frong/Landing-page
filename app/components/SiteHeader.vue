@@ -13,6 +13,18 @@ function onKeydown(event: KeyboardEvent) {
   menuButton.value?.focus()
 }
 
+// The open panel closes when the focus moves to an element outside the header, e.g. on Tab
+// after the panel's last button: that element is on the page under the backdrop (D-018).
+// The focus is not moved here; it goes on to that element as usual. The panel stays open
+// while the focus stays in the header (the logo link, the menu button, the panel), and when
+// the focus goes to no element at all (`relatedTarget` is null), e.g. after a tap on an empty
+// part of the panel or a switch to another window.
+function onFocusOut(event: FocusEvent) {
+  const header = event.currentTarget as HTMLElement
+  const nextFocus = event.relatedTarget
+  if (isOpen.value && nextFocus instanceof Node && !header.contains(nextFocus)) close()
+}
+
 // Close the panel when the window gets wide enough for the full menu.
 // 64rem is Tailwind's `lg` breakpoint (1024px), the one the template uses.
 let desktopQuery: MediaQueryList | undefined
@@ -38,6 +50,7 @@ onBeforeUnmount(() => {
   <header
     id="site-header"
     class="sticky top-0 z-50 border-b border-border bg-surface"
+    @focusout="onFocusOut"
   >
     <div class="page-container flex h-16 items-center justify-between gap-4">
       <!-- Named by its visible text, "BrightPath Academy", so it has no aria-label (D-010). -->

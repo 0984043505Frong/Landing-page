@@ -121,7 +121,15 @@ const emailHref = `mailto:${contact.email}`
         </ul>
       </div>
 
-      <div class="rounded-card bg-surface px-5 py-6 shadow-card md:p-10">
+      <!--
+        The LINE button above leads here (#quote-form). The anchor is on the card, not on the
+        <form>: after a successful submit the form is hidden and the card shows the thank-you
+        message instead, and a browser cannot scroll to a hidden element (D-019).
+      -->
+      <div
+        id="quote-form"
+        class="rounded-card bg-surface px-5 py-6 shadow-card md:p-10"
+      >
         <QuoteForm />
       </div>
     </div>

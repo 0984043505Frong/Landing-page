@@ -49,7 +49,10 @@
     line-height: 1.7;
   }
 
-  /* Sections reached through a link stop below the sticky header (64px high) instead of under it. */
+  /*
+   * Whatever an in-page link leads to (a section, the quote form card) stops 80px from the top,
+   * below the sticky header (64px plus its 1px bottom border) instead of under it.
+   */
   [id] {
     scroll-margin-top: 80px;
   }

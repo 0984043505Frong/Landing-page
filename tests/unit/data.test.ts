@@ -58,15 +58,19 @@ describe('site', () => {
   })
 })
 
+// How many courses, trainers and questions there are is content: the page shows as many as
+// app/data/ lists, so these tests check the rules every item must follow, not a count (D-017).
+// The stats card and the trainer service steps are laid out for a fixed number of items.
+
 describe('stats', () => {
-  it('has 3 numbers', () => {
+  it('has 3 numbers, the columns of the stats card', () => {
     expect(stats).toHaveLength(3)
   })
 })
 
 describe('courses (N10)', () => {
-  it('has 6 courses', () => {
-    expect(courses).toHaveLength(6)
+  it('has at least one course', () => {
+    expect(courses.length).toBeGreaterThan(0)
   })
 
   it('gives every course a title, a duration, at least one format and exactly 3 topics', () => {
@@ -89,14 +93,15 @@ describe('courses (N10)', () => {
 })
 
 describe('steps', () => {
+  // 4 steps: one row of 4 from 1024px, 2 × 2 at 768px (design spec 4.7).
   it('lists the 4 steps of the trainer service in order', () => {
     expect(steps.map(step => joinPhrases(step.title))).toEqual(['แจ้งความต้องการ', 'เสนอวิทยากร', 'ยืนยัน', 'จัดอบรม'])
   })
 })
 
 describe('trainers (N12)', () => {
-  it('has 4 trainers with unique ids', () => {
-    expect(trainers).toHaveLength(4)
+  it('has at least one trainer, each with a unique id', () => {
+    expect(trainers.length).toBeGreaterThan(0)
     expect(unique(trainers.map(trainer => trainer.id))).toBe(true)
   })
 
@@ -106,8 +111,8 @@ describe('trainers (N12)', () => {
 })
 
 describe('faqs', () => {
-  it('has 5 questions with unique ids', () => {
-    expect(faqs).toHaveLength(5)
+  it('has at least one question, each with a unique id', () => {
+    expect(faqs.length).toBeGreaterThan(0)
     expect(unique(faqs.map(faq => faq.id))).toBe(true)
   })
 })

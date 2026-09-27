@@ -16,6 +16,9 @@ import { NOT_SURE_COURSE_ID, validateQuote } from '~/utils/validateQuote'
  * - A submit with errors moves the focus to the first field with an error.
  * - A valid submit hides the form and shows the thank-you message, which takes the focus.
  *   Nothing leaves the browser yet (see app/utils/submitQuote.ts).
+ *
+ * Links to the form point at the card around this component (#quote-form in ContactSection),
+ * which stays visible in both states (D-019).
  */
 
 // The fields in the order they appear on the page.
@@ -77,7 +80,6 @@ async function startOver() {
 
 <template>
   <form
-    id="quote-form"
     ref="form"
     novalidate
     aria-labelledby="form-title"
