@@ -1,0 +1,84 @@
+# Checks every push and pull request, and publishes `main` to GitHub Pages:
+# https://0984043505frong.github.io/Landing-page/
+# Repository settings -> Pages -> Source must be "GitHub Actions". No secrets are needed.
+name: CI and deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Read-only by default; only the deploy job may publish to Pages.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Lint, test and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up Node from .nvmrc
+        uses: actions/setup-node@v7
+        with:
+          # .nvmrc holds only the major version; check-latest takes its newest release,
+          # which meets the minimum in package.json "engines".
+          node-version-file: .nvmrc
+          check-latest: true
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      # @nuxt/fonts downloads the font while building. If this step fails with ENOTFOUND or
+      # "fetch failed" for a font host, the host was unreachable: re-run the job.
+      - name: Generate the static site
+        run: npm run generate
+
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      # Playwright starts `npm run preview`, which serves the output of the generate step
+      # under /Landing-page/, so this has to come after it.
+      - name: End-to-end tests
+        run: npm run test:e2e
+
+      - name: Upload the site for GitHub Pages
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: .output/public
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    # One deployment at a time, and a running deployment is never cancelled halfway.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v5

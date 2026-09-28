@@ -177,11 +177,22 @@ and no link to LINE.
 
 ## Deploy
 
-The site is published to GitHub Pages by **GitHub Actions**: a workflow in
-`.github/workflows/` installs the packages, runs the checks, runs `npm run generate` and deploys
-`.output/public`. In the repository settings, **Pages → Source must be "GitHub Actions"**. Do not
-use "Deploy from a branch": that source runs Jekyll, which drops the folders whose names start
-with `_`, so `_nuxt/` (scripts and styles) and `_fonts/` would be missing.
+The site is published to GitHub Pages by **GitHub Actions**, with one workflow:
+`.github/workflows/deploy.yml`. It needs no secrets.
+
+- **Every push and pull request** is checked: `npm ci` with the Node version from `.nvmrc`, then
+  `npm run lint`, `npm run typecheck`, `npm run test:unit`, `npm run generate`, and
+  `npm run test:e2e` on the generated site (with Chromium installed first).
+- **A push to `main`** that passes all of them is deployed: `.output/public` goes live at
+  <https://0984043505frong.github.io/Landing-page/>. Pull requests are never deployed.
+- To deploy `main` again without a new commit, run the workflow by hand: Actions → "CI and deploy"
+  → "Run workflow".
+
+In the repository settings, **Pages → Source must be "GitHub Actions"**. Do not switch it to
+"Deploy from a branch": that source publishes files committed to a branch, so the built site would
+have to be committed, and it would go live without the checks above. Jekyll, which that source
+runs, is not the problem: `npm run generate` writes a `.nojekyll` file, so `_nuxt/` and `_fonts/`
+would be kept.
 
 ## A workaround to remove later
 
