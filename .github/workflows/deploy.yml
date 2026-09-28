@@ -16,11 +16,15 @@ permissions:
 jobs:
   build:
     name: Lint, test and build
-    runs-on: ubuntu-latest
+    # Both jobs pin an Ubuntu release instead of the moving "latest" label, so the OS
+    # that `playwright install --with-deps` sets up changes only on purpose.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Check out
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Set up Node from .nvmrc
         uses: actions/setup-node@v7
@@ -66,7 +70,7 @@ jobs:
     name: Deploy to GitHub Pages
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       pages: write
