@@ -305,14 +305,16 @@ function hiddenAboveRevealLine() {
 /**
  * Scrolls the whole page down as a visitor would, 0.6 of the window at a time (instantly, so that
  * nothing is measured half way through a smooth scroll). After each step, what came above the 90%
- * line of the window must be revealed (design spec 10.4, DA15) and its fade must end.
+ * line of the window must be revealed (design spec 10.4, DA15) and its fade must end. A test that
+ * judges hidden elements itself passes `checkReveal: false`.
  */
-async function scrollThroughPage(page: Page) {
+async function scrollThroughPage(page: Page, { checkReveal = true } = {}) {
   const step = Math.round(page.viewportSize()!.height * 0.6)
   const pageHeight = await page.evaluate(() => document.documentElement.scrollHeight)
   for (let top = 0; top <= pageHeight + step; top += step) {
     await page.evaluate(y => window.scrollTo({ top: y, behavior: 'instant' }), top)
-    await expect.poll(() => page.evaluate(hiddenAboveRevealLine), { timeout: 1000, intervals: [50] }).toEqual([])
+    if (checkReveal) await expect.poll(() => page.evaluate(hiddenAboveRevealLine), { timeout: 1000, intervals: [50] }).toEqual([])
+    else await nextFrames(page)
     await waitForTransitions(page)
   }
 }
@@ -434,13 +436,16 @@ function expectCountUp(frames: CountFrame[]) {
   expect(onScreen.at(-1)!.shown, 'values at the end').toEqual(FINAL_NUMBERS)
 }
 
-/** Mode B with the numbers on screen (D-049 rule 2): the final values in every frame, nothing else. */
+/**
+ * Mode B with the numbers on screen (D-049 rule 2): the final values in every frame, nothing else.
+ * Soft checks: a broken build reports every rule it breaks, not only the first.
+ */
 function expectFinalInEveryFrame(log: MotionLog) {
   expect(log.counts.length, 'recorded frames').toBeGreaterThan(30)
   const notFinal = log.counts.filter(frame => frame.shown.some((value, index) => value !== FINAL_NUMBERS[index]) || frame.finalOpacity !== 1)
-  expect(notFinal[0] ?? null, 'first frame without the final values').toBeNull()
-  expect(log.animations.filter(animation => animation.name === 'countup'), 'countup animations').toEqual([])
-  expect([...new Set(log.counts.map(frame => frame.state))], 'data-countup-state').toEqual([null])
+  expect.soft(notFinal[0] ?? null, 'first frame without the final values').toBeNull()
+  expect.soft(log.animations.filter(animation => animation.name === 'countup'), 'countup animations').toEqual([])
+  expect.soft([...new Set(log.counts.map(frame => frame.state))], 'data-countup-state').toEqual([null])
 }
 
 /**
@@ -878,20 +883,21 @@ for (const mode of MODES) {
           countUps: document.getAnimations().filter(animation => (animation as CSSAnimation).animationName === 'countup').length,
         }))
         // The design check's timing (DA20 (c)): 1.5 seconds after load, then the whole page.
+        // Soft checks: a broken error path reports every rule it breaks, not only the first.
         await page.waitForTimeout(1500)
-        expect(await read()).toEqual({ waiting: 0, state: 'done', countUps: 0 })
-        await scrollThroughPage(page)
+        expect.soft(await read(), '1.5 seconds after load').toEqual({ waiting: 0, state: 'done', countUps: 0 })
+        await scrollThroughPage(page, { checkReveal: false })
         await centreStatsCard(page)
         await page.waitForTimeout(1300)
-        expect(await read()).toEqual({ waiting: 0, state: 'done', countUps: 0 })
-        expect(await page.evaluate(notFullyShown)).toEqual([])
+        expect.soft(await read(), 'after scrolling through the page').toEqual({ waiting: 0, state: 'done', countUps: 0 })
+        expect.soft(await page.evaluate(notFullyShown), 'not fully shown').toEqual([])
 
         const log = await motionLog(page)
         const onScreen = log.counts.filter(frame => frame.onScreen)
         expect(onScreen.length, 'frames with the numbers on screen').toBeGreaterThan(0)
-        expect(onScreen.find(frame => frame.shown.some((value, index) => value !== FINAL_NUMBERS[index])) ?? null, 'first frame on screen without the final values').toBeNull()
-        expect(log.animations.filter(animation => animation.name === 'countup')).toEqual([])
-        expect(errors.filter(error => error.includes(INJECTED_ERROR)).length, 'the error is reported in the console').toBeGreaterThanOrEqual(1)
+        expect.soft(onScreen.find(frame => frame.shown.some((value, index) => value !== FINAL_NUMBERS[index])) ?? null, 'first frame on screen without the final values').toBeNull()
+        expect.soft(log.animations.filter(animation => animation.name === 'countup'), 'countup animations').toEqual([])
+        expect.soft(errors.filter(error => error.includes(INJECTED_ERROR)).length, 'the error is reported in the console').toBeGreaterThanOrEqual(1)
       })
     })
   }
