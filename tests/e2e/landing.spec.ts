@@ -625,6 +625,9 @@ for (const viewport of VIEWPORTS) {
     test('8 (N13) a valid request shows the thank-you message and sends nothing', async ({ page }) => {
       await openPage(page)
       await page.waitForLoadState('networkidle')
+      // The contact section hydrates when it comes into view (app.vue): its JavaScript is not a request of the form.
+      await quoteFormElement(page).scrollIntoViewIfNeeded()
+      await expect(quoteFormElement(page)).toHaveAttribute('data-hydrated', '')
       const requests: string[] = []
       page.on('request', request => requests.push(request.url()))
 

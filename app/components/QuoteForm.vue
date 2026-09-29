@@ -76,11 +76,42 @@ async function startOver() {
   await nextTick()
   focusField('name')
 }
+
+// The contact section hydrates when it comes into view (app.vue), so a visitor may type before this
+// component runs. Take over what is already in the fields: on hydration Vue keeps typed text only in
+// text inputs and textareas, and would empty the phone field and the course list.
+onBeforeMount(() => {
+  for (const field of FIELD_ORDER) {
+    const control = document.getElementById(`f-${field}`)
+    if (control instanceof HTMLInputElement || control instanceof HTMLSelectElement || control instanceof HTMLTextAreaElement) {
+      values[field] = control.value
+    }
+  }
+})
+
+// From here on Vue handles submits. A submit made before hydration was held by
+// app/plugins/pending-submit.client.ts: run it now.
+onMounted(() => {
+  const element = form.value
+  if (!element) return
+  element.setAttribute('data-hydrated', '')
+  if (element.hasAttribute('data-submit-pending')) {
+    element.removeAttribute('data-submit-pending')
+    onSubmit()
+  }
+})
 </script>
 
 <template>
+  <!--
+    method="dialog": a submit that Vue does not handle (before this component hydrates, or without
+    JavaScript) does nothing, instead of a GET that reloads the page with the typed values in the URL.
+    Change it together with TODO(formspree) in app/utils/submitQuote.ts, e.g. to method="post"
+    action="<form URL>", so that the form also sends without JavaScript.
+  -->
   <form
     ref="form"
+    method="dialog"
     novalidate
     aria-labelledby="form-title"
     :hidden="isSent"

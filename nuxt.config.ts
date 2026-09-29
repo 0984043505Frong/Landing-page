@@ -43,6 +43,15 @@ export default defineNuxtConfig({
       include: ['../tests/**/*', '../vitest.config.ts', '../playwright.config.ts'],
     },
   },
+  hooks: {
+    // No <link rel="prefetch"> for any chunk. Nuxt 4.5.2 prefetches every lazily hydrated
+    // component, hydrate-never ones included (in production builds it cannot match them to
+    // their files), so the browser would still download their JavaScript after the page loads.
+    // The page needs only the entry at load; a lazy chunk is fetched when its component hydrates.
+    'build:manifest': (manifest) => {
+      for (const chunk of Object.values(manifest)) chunk.prefetch = false
+    },
+  },
   eslint: {
     // Also check formatting (2-space indent, single quotes, no semicolons).
     config: { stylistic: true },
