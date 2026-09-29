@@ -148,6 +148,15 @@
     opacity: calc(1 - var(--countup-on));
   }
 
+  /* Mode B: the final value was painted at the first paint and is hidden only later (pending, run),
+     so it is clipped away instead of made transparent. Still painted, it moves at once with a web
+     font that swaps meanwhile; made transparent, the move would count as a layout shift when it
+     shows again after the count (L-069). Not counting, it computes to inset(0%): nothing clipped. */
+  [data-countup-mode="scroll"] .countup-final {
+    opacity: 1;
+    clip-path: inset(calc(var(--countup-on) * 50%));
+  }
+
   .countup-live {
     display: block;
     position: absolute;
@@ -302,7 +311,9 @@ html[data-scrolled] .site-header::after {
   }
 }
 
-/* 8px tall, at the very top of the page: once it has left the window, the page has scrolled. */
+/* 8px tall, at the very top of the page: once it has left the window, the page has scrolled. The
+   script adds it after the first paint, so it must stay out of the flow: position absolute, in this
+   stylesheet that loads before the first paint (design spec 10.8, D-050). */
 .scroll-sentinel {
   position: absolute;
   top: 0;
@@ -321,6 +332,7 @@ html[data-scrolled] .site-header::after {
 
   .countup-final {
     opacity: 1 !important;
+    clip-path: none !important;
   }
 
   .countup-live {

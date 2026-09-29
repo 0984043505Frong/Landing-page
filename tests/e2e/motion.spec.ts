@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, test } from '@playwright/test'
-import type { Page } from '@playwright/test'
+import type { APIResponse, Browser, Page, Route } from '@playwright/test'
 import { site } from '../../app/data/site'
 import { stats } from '../../app/data/stats'
 import { COUNTUP_MODE } from '../../app/motion/countup-mode'
@@ -25,6 +25,10 @@ import { COUNTUP_MODE } from '../../app/motion/countup-mode'
  * (G-036): reading styles before the first paint would start the CSS count early. The tests wait
  * for animations to finish with getAnimations() and `finished`; the few fixed waits check that
  * something does NOT start by itself, as the design checks prescribe.
+ *
+ * The motion script starts on the frame after the first contentful paint (D-050). The recorder
+ * notes its first layout / style read and its first change to the page (DA23 (a)): tests use that
+ * moment as "the script started", and check that nothing happened before the first paint.
  */
 
 type CountUpMode = 'load' | 'scroll'
@@ -93,15 +97,25 @@ interface CountFrame {
   shown: string[]
   /** Lowest opacity of the final values. */
   finalOpacity: number
+  /** Computed clip-path of the final values (mode B hides them with it while counting). */
+  finalClips: string[]
   /** data-countup-state of #stats. */
   state: string | null
   /** Size of each number's box, to see that it never changes. */
   boxes: string
 }
 
+/** A moment the motion script did something, and what it was. */
+interface ScriptMark {
+  time: number
+  what: string
+}
+
 interface MotionLog {
   fcp: number | null
-  /** When the web font last finished loading (document.fonts 'loadingdone'). */
+  /** The first contentful paint, not rounded: compared with the script's start (DA23 (a)). */
+  fcpExact: number | null
+  /** When the web fonts first finished loading (the first document.fonts 'loadingdone' - DA22). */
   fontsDoneAt: number | null
   frames: number
   maxAnimations: number
@@ -112,11 +126,21 @@ interface MotionLog {
   hiddenOnScreen: { time: number, count: number }[]
   /** Every value that data-reveal-state took, per element (in the order of [data-reveal]). */
   revealStates: Record<number, string[]>
+  /** The motion script's first layout / style read and first change to the page (DA23 (a)). */
+  firstScriptRead: ScriptMark | null
+  firstMotionChange: ScriptMark | null
+  /** What the script hid, paused or set pending, and whether it was on screen then (D-050 rule 3). */
+  atStart: (ScriptMark & { onScreen: boolean })[]
+  /** Elements seen on screen that were hidden afterwards. */
+  blinks: string[]
+  /** Count-up timing (Web Animations) in the first frame in which number 1 counts (DA16, D-052). */
+  countupTiming: { startTime: number, delay: number }[] | null
 }
 
 declare global {
   interface Window {
     __motion: MotionLog
+    __fontsFirstPaint?: () => void
   }
 }
 
@@ -124,9 +148,17 @@ declare global {
  * Runs in the page before any of its scripts (page.addInitScript), so it passes nothing from this
  * file. It starts sampling on the first frame after the first contentful paint, so it never forces
  * a style calculation before the page is painted.
+ *
+ * It also watches the motion script's start (D-050, DA23 (a)): every API that makes the browser
+ * compute style or layout is wrapped, and the first call made from the page's own inline script
+ * (its stack names the page URL) is noted; the script's attribute changes, the header sentinel and
+ * count-up pauses are noted too. The recorder's own reads never count.
  */
 function recordMotion() {
-  const log: MotionLog = { fcp: null, fontsDoneAt: null, frames: 0, maxAnimations: 0, animations: [], counts: [], shifts: [], hiddenOnScreen: [], revealStates: {} }
+  const log: MotionLog = {
+    fcp: null, fcpExact: null, fontsDoneAt: null, frames: 0, maxAnimations: 0, animations: [], counts: [], shifts: [],
+    hiddenOnScreen: [], revealStates: {}, firstScriptRead: null, firstMotionChange: null, atStart: [], blinks: [], countupTiming: null,
+  }
   window.__motion = log
 
   const describe = (element: Element | null, pseudo?: string | null) => {
@@ -138,9 +170,93 @@ function recordMotion() {
   }
   const kebab = (name: string) => (name.startsWith('--') ? name : name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`))
 
-  // Text reflows once when the web font replaces its fallback. Shifts after this moment cannot come from the font.
+  // --- The motion script's first layout / style read. Only calls whose stack has a frame of the
+  // page itself (the inline script: "…/Landing-page/:line:column") count.
+  const pageUrl = `${location.origin}${location.pathname}:`
+  let quiet = false
+  const scriptRead = (api: string) => {
+    if (quiet || log.firstScriptRead) return
+    const stack = new Error('stack').stack ?? ''
+    if (stack.split('\n').some(line => line.includes(pageUrl))) log.firstScriptRead = { time: performance.now(), what: api }
+  }
+  const wrapMethod = (target: object, name: string, label: string) => {
+    const owner = target as Record<string, (...args: unknown[]) => unknown>
+    const original = owner[name]!
+    owner[name] = function (this: unknown, ...args: unknown[]) {
+      scriptRead(label)
+      return original.apply(this, args)
+    }
+  }
+  const wrapGetter = (target: object, name: string, label: string) => {
+    const descriptor = Object.getOwnPropertyDescriptor(target, name)
+    if (!descriptor?.get || !descriptor.configurable) return
+    const get = descriptor.get
+    Object.defineProperty(target, name, {
+      ...descriptor,
+      get() {
+        scriptRead(label)
+        return get.call(this)
+      },
+    })
+  }
+  const rawRect = Element.prototype.getBoundingClientRect
+  wrapMethod(Element.prototype, 'getBoundingClientRect', 'getBoundingClientRect')
+  wrapMethod(Element.prototype, 'getClientRects', 'getClientRects')
+  wrapMethod(Document.prototype, 'getAnimations', 'document.getAnimations')
+  wrapMethod(Element.prototype, 'getAnimations', 'element.getAnimations')
+  wrapMethod(window, 'getComputedStyle', 'getComputedStyle')
+  for (const name of ['offsetTop', 'offsetLeft', 'offsetWidth', 'offsetHeight', 'offsetParent']) wrapGetter(HTMLElement.prototype, name, name)
+  for (const name of ['clientTop', 'clientLeft', 'clientWidth', 'clientHeight', 'scrollTop', 'scrollLeft', 'scrollWidth', 'scrollHeight']) wrapGetter(Element.prototype, name, name)
+  for (const name of ['innerWidth', 'innerHeight', 'scrollX', 'scrollY']) wrapGetter(window, name, `window.${name}`)
+
+  // --- The motion script's changes: attributes (no layout needed to watch them), the sentinel of the
+  // header shadow, and count-up pauses. Whether a hidden / pending / paused thing was on screen is
+  // read with the unwrapped getBoundingClientRect.
+  const onScreen = (element: Element | null) => {
+    if (!element) return false
+    const box = rawRect.call(element)
+    return box.bottom > 0 && box.top < window.innerHeight && box.right > 0 && box.left < window.innerWidth
+  }
+  const changed = (what: string) => {
+    if (!log.firstMotionChange) log.firstMotionChange = { time: performance.now(), what }
+  }
+  new MutationObserver((records) => {
+    quiet = true
+    const targets = [...document.querySelectorAll('[data-reveal]')]
+    for (const record of records) {
+      const element = record.target as Element
+      const value = element.getAttribute(record.attributeName!)
+      changed(`${record.attributeName}=${value ?? '(removed)'}`)
+      if (record.attributeName === 'data-reveal-state') {
+        const index = targets.indexOf(element)
+        log.revealStates[index] = [...(log.revealStates[index] ?? []), value ?? 'none']
+        if (value === 'hidden') log.atStart.push({ time: performance.now(), what: `hidden ${describe(element)}`, onScreen: onScreen(element) })
+      }
+      if (record.attributeName === 'data-countup-state' && value === 'pending') {
+        log.atStart.push({ time: performance.now(), what: 'pending #stats', onScreen: onScreen(element.querySelector('ul')) })
+      }
+    }
+    quiet = false
+  }).observe(document, { subtree: true, attributes: true, attributeFilter: ['data-reveal-state', 'data-reveal-step', 'data-countup-state', 'data-scrolled', 'data-faq-motion'] })
+  const prepend = Element.prototype.prepend
+  Element.prototype.prepend = function (this: Element, ...nodes: (Node | string)[]) {
+    if (nodes.some(node => node instanceof Element && node.classList.contains('scroll-sentinel'))) changed('prepend .scroll-sentinel')
+    return prepend.apply(this, nodes)
+  }
+  const pause = Animation.prototype.pause
+  Animation.prototype.pause = function (this: Animation) {
+    if ((this as CSSAnimation).animationName === 'countup') {
+      quiet = true
+      changed('pause countup')
+      log.atStart.push({ time: performance.now(), what: 'pause countup', onScreen: onScreen(document.querySelector('#stats ul')) })
+      quiet = false
+    }
+    return pause.apply(this)
+  }
+
+  // Text reflows once when the web fonts replace their fallback. Shifts after this cannot come from them.
   document.fonts.addEventListener('loadingdone', () => {
-    log.fontsDoneAt = Math.round(performance.now())
+    if (log.fontsDoneAt === null) log.fontsDoneAt = Math.round(performance.now())
   })
 
   new PerformanceObserver((list) => {
@@ -149,18 +265,11 @@ function recordMotion() {
     }
   }).observe({ type: 'layout-shift', buffered: true })
 
-  // Attribute changes only: reading them forces no style calculation.
-  new MutationObserver((records) => {
-    const targets = [...document.querySelectorAll('[data-reveal]')]
-    for (const record of records) {
-      const element = record.target as Element
-      const index = targets.indexOf(element)
-      log.revealStates[index] = [...(log.revealStates[index] ?? []), element.getAttribute('data-reveal-state') ?? 'none']
-    }
-  }).observe(document, { subtree: true, attributes: true, attributeFilter: ['data-reveal-state'] })
-
   const seen = new WeakSet<Animation>()
+  const shownOnce = new WeakSet<Element>()
+  const blinked = new WeakSet<Element>()
   const sample = (time: number) => {
+    quiet = true
     log.frames++
     const animations = document.getAnimations()
     log.maxAnimations = Math.max(log.maxAnimations, animations.length)
@@ -185,6 +294,17 @@ function recordMotion() {
       })
     }
 
+    // D-052: the count-up's own timing, read in the first frame in which number 1 counts (past its
+    // delay): one start time for all three, delays 0 / 80 / 160ms.
+    if (!log.countupTiming) {
+      const counting = animations.filter(animation => (animation as CSSAnimation).animationName === 'countup')
+      const delayOf = (animation: Animation) => (animation.effect as KeyframeEffect).getTiming().delay ?? 0
+      if (counting.length === 3 && counting.every(animation => animation.startTime !== null && animation.playState === 'running')
+        && Number(counting[0]!.currentTime) > delayOf(counting[0]!)) {
+        log.countupTiming = counting.map(animation => ({ startTime: Number(animation.startTime), delay: delayOf(animation) }))
+      }
+    }
+
     const card = document.querySelector('#stats ul')
     if (card) {
       const box = card.getBoundingClientRect()
@@ -199,23 +319,34 @@ function recordMotion() {
         const size = value.getBoundingClientRect()
         return `${Math.round(size.width * 100) / 100}x${Math.round(size.height * 100) / 100}`
       })
+      const finals = countUps.map(countUp => getComputedStyle(countUp.querySelector('.countup-final')!))
       log.counts.push({
         time: Math.round(time),
         onScreen: box.bottom > 0 && box.top < window.innerHeight,
         cardTop: Math.round(box.top),
         cardBottom: Math.round(box.bottom),
         shown,
-        finalOpacity: Math.min(...countUps.map(countUp => Number.parseFloat(getComputedStyle(countUp.querySelector('.countup-final')!).opacity))),
+        finalOpacity: Math.min(...finals.map(style => Number.parseFloat(style.opacity))),
+        finalClips: [...new Set(finals.map(style => style.clipPath))],
         state: document.querySelector('#stats')!.getAttribute('data-countup-state'),
         boxes: boxes.join(' '),
       })
     }
 
-    const hidden = [...document.querySelectorAll('[data-reveal-state="hidden"]')].filter((element) => {
+    let hidden = 0
+    for (const element of document.querySelectorAll('[data-reveal]')) {
       const box = element.getBoundingClientRect()
-      return box.top < window.innerHeight && box.bottom > 0
-    }).length
+      const inWindow = box.top < window.innerHeight && box.bottom > 0
+      const waiting = element.getAttribute('data-reveal-state') === 'hidden'
+      if (inWindow && waiting) hidden++
+      if (inWindow && !waiting) shownOnce.add(element)
+      if (waiting && shownOnce.has(element) && !blinked.has(element)) {
+        blinked.add(element)
+        log.blinks.push(`${describe(element)} at ${Math.round(time)}ms`)
+      }
+    }
     if (hidden) log.hiddenOnScreen.push({ time: Math.round(time), count: hidden })
+    quiet = false
     requestAnimationFrame(sample)
   }
 
@@ -224,6 +355,7 @@ function recordMotion() {
     const paint = list.getEntriesByName('first-contentful-paint')[0]
     if (started || !paint) return
     started = true
+    log.fcpExact = paint.startTime
     log.fcp = Math.round(paint.startTime)
     requestAnimationFrame(sample)
   }).observe({ type: 'paint', buffered: true })
@@ -246,26 +378,38 @@ function withCountUpMode(html: string, mode: CountUpMode) {
   return html.replace(tag, tag.replace(switchInBuild, ` data-countup-mode="${mode}"`))
 }
 
+/** Serves the page with count-up `mode` (rewriting the switch in the HTML), from the next navigation on. */
+async function serveInMode(page: Page, mode: CountUpMode) {
+  if (mode === COUNTUP_MODE) return
+  const html = withCountUpMode(await (await page.request.get('./')).text(), mode)
+  await page.route(url => url.pathname === basePath, route => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }))
+}
+
 /**
  * Opens the page with count-up `mode`, recording its motion, and waits for the first contentful
- * paint and the web font.
+ * paint, the web font, and the motion script's start (the header sentinel it adds last) - or only
+ * for the paint and the font (`waitFor: 'paint'`, when the test itself judges the start).
  */
-async function openPage(page: Page, mode: CountUpMode = COUNTUP_MODE) {
-  if (mode !== COUNTUP_MODE) {
-    const html = withCountUpMode(await (await page.request.get('./')).text(), mode)
-    await page.route(url => url.pathname === basePath, route => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }))
-  }
+async function openPage(page: Page, mode: CountUpMode = COUNTUP_MODE, { waitFor = 'start' }: { waitFor?: 'start' | 'paint' } = {}) {
+  await serveInMode(page, mode)
   await page.addInitScript(recordMotion)
   await page.goto('./')
-  await waitForFirstPaint(page)
+  await waitForFirstPaint(page, { waitFor })
   expect(await page.locator('#stats').getAttribute('data-countup-mode')).toBe(mode)
 }
 
-async function waitForFirstPaint(page: Page) {
+async function waitForFirstPaint(page: Page, { waitFor = 'start' }: { waitFor?: 'start' | 'paint' } = {}) {
   await page.waitForFunction(() => window.__motion?.fcp !== null)
   await page.evaluate(async () => {
     await document.fonts.ready
   })
+  if (waitFor === 'start') await page.waitForFunction(() => document.querySelector('.scroll-sentinel') !== null)
+}
+
+/** When the motion script started: its first layout read or its first change, whichever came first (DA23 (a)). */
+function scriptStart(log: MotionLog) {
+  const times = [log.firstScriptRead?.time, log.firstMotionChange?.time].filter((time): time is number => typeof time === 'number')
+  return times.length ? Math.min(...times) : null
 }
 
 function motionLog(page: Page) {
@@ -408,11 +552,13 @@ function expectNeverDown(frames: CountFrame[]) {
 }
 
 /**
- * DA16 (D-031, D-034): a count on screen starts at 0, never goes down, takes 1000ms ±5% from its
- * first change on screen to its final value, and numbers 2 and 3 start 80 and 160ms after number 1
- * (±1 frame). The boxes of the numbers keep one size.
+ * DA16 (D-031, D-034, D-052): a count on screen starts at 0, never goes down, and takes 1000ms ±5%
+ * from its first change on screen to its final value. Stagger, two ways (soft checks, so a wrong
+ * build reports both): (a) the Web Animations timing in the first frame number 1 counts - one start
+ * time (±1ms), delays 0 / 80 / 160ms (±1ms); (b) on screen, numbers 2 and 3 first change 80 and
+ * 160ms after number 1 (±2 frames). The boxes of the numbers keep one size.
  */
-function expectCountUp(frames: CountFrame[]) {
+function expectCountUp(log: MotionLog, frames: CountFrame[] = log.counts) {
   const onScreen = frames.filter(frame => frame.onScreen)
   expect(onScreen.length, 'frames with the numbers on screen').toBeGreaterThan(30)
   const first = onScreen[0]!
@@ -428,9 +574,18 @@ function expectCountUp(frames: CountFrame[]) {
     expect(number.spanMs!, `${number.finalText}: count-up on screen, ms`).toBeLessThanOrEqual(SPEC.countUpMaxMs)
   }
   expectNeverDown(onScreen)
+  const timing = log.countupTiming
+  expect.soft(timing, 'count-up timing read while number 1 counts').not.toBeNull()
+  if (timing) {
+    const startTimes = timing.map(entry => entry.startTime)
+    expect.soft(Math.max(...startTimes) - Math.min(...startTimes), `(a) one start time for the three numbers: ${startTimes.join(' / ')}`).toBeLessThanOrEqual(1)
+    timing.forEach((entry, index) => {
+      expect.soft(Math.abs(entry.delay - index * SPEC.staggerMs), `(a) delay of number ${index + 1} is ${entry.delay}ms, expected ${index * SPEC.staggerMs}ms`).toBeLessThanOrEqual(1)
+    })
+  }
   const starts = numbers.map(number => number.firstChangeAt! - numbers[0]!.firstChangeAt!)
   starts.forEach((start, index) => {
-    expect(Math.abs(start - index * SPEC.staggerMs), `number ${index + 1} starts ${start}ms after number 1`).toBeLessThanOrEqual(SPEC.frameMs)
+    expect.soft(Math.abs(start - index * SPEC.staggerMs), `(b) number ${index + 1} first changes ${start}ms after number 1`).toBeLessThanOrEqual(2 * SPEC.frameMs)
   })
   expect(new Set(frames.map(frame => frame.boxes)).size, 'sizes of the number boxes').toBe(1)
   expect(onScreen.at(-1)!.shown, 'values at the end').toEqual(FINAL_NUMBERS)
@@ -444,6 +599,9 @@ function expectFinalInEveryFrame(log: MotionLog) {
   expect(log.counts.length, 'recorded frames').toBeGreaterThan(30)
   const notFinal = log.counts.filter(frame => frame.shown.some((value, index) => value !== FINAL_NUMBERS[index]) || frame.finalOpacity !== 1)
   expect.soft(notFinal[0] ?? null, 'first frame without the final values').toBeNull()
+  // Mode B clips the final values away only while counting; not counting it computes to inset(0%).
+  const clips = [...new Set(log.counts.flatMap(frame => frame.finalClips))]
+  expect.soft(clips.filter(clip => clip !== 'none' && clip !== 'inset(0%)'), 'clip-path of the final values that cuts them').toEqual([])
   expect.soft(log.animations.filter(animation => animation.name === 'countup'), 'countup animations').toEqual([])
   expect.soft([...new Set(log.counts.map(frame => frame.state))], 'data-countup-state').toEqual([null])
 }
@@ -659,9 +817,9 @@ for (const viewport of [PHONE, DESKTOP]) {
       expect(log.animations.find(animation => animation.properties.includes('height')) ?? null).toBeNull()
       expectNoShiftAfterFontLoad(log)
       expect(sumOfShifts(log, scrollStart), 'layout shift while scrolling').toBe(0)
-      expectNeverDown(log.counts)
+      expectNeverDown(log.counts.filter(frame => frame.onScreen))
       expect(log.counts.at(-1)!.shown).toEqual(FINAL_NUMBERS)
-      if (COUNTUP_MODE === 'load') expectCountUp(log.counts.filter(frame => frame.time < scrollStart))
+      if (COUNTUP_MODE === 'load') expectCountUp(log, log.counts.filter(frame => frame.time < scrollStart))
       else expectFinalInEveryFrame(log)
 
       // The same page with reduced motion: every element ends where it is there.
@@ -708,7 +866,7 @@ test.describe('count-up mode A (load)', () => {
       await openPage(page, 'load')
       await waitForCountUp(page)
       const log = await motionLog(page)
-      expectCountUp(log.counts)
+      expectCountUp(log)
       expectNoShiftAfterFontLoad(log)
       expect([...new Set(log.counts.map(frame => frame.state))]).toEqual([null])
     })
@@ -736,7 +894,7 @@ test.describe('count-up mode A (load)', () => {
       await expect.poll(async () => (await page.evaluate(readCountUp)).countUps).toEqual(['running', 'running', 'running'])
       await waitForCountUp(page)
       const log = await motionLog(page)
-      expectCountUp(log.counts)
+      expectCountUp(log)
       expect(sumOfShifts(log, countStart), 'layout shift while counting').toBe(0)
       expectNoShiftAfterFontLoad(log)
     })
@@ -785,7 +943,7 @@ test.describe('count-up mode B (scroll)', () => {
       await expect.poll(async () => (await page.evaluate(readCountUp)).countUps).toEqual(['running', 'running', 'running'])
       await waitForCountUp(page)
       const log = await motionLog(page)
-      expectCountUp(log.counts)
+      expectCountUp(log)
       expect(sumOfShifts(log, countStart), 'layout shift while counting').toBe(0)
       expect(log.animations.filter(animation => animation.name === 'countup').map(animation => animation.delay), 'countup delays').toEqual([0, SPEC.staggerMs, 2 * SPEC.staggerMs])
       expect(await page.evaluate(() => document.querySelector('#stats')!.getAttribute('data-countup-state'))).toBe('run')
@@ -844,7 +1002,7 @@ test.describe('when the page\'s JavaScript cannot load (/_nuxt/*.js), at 375x812
       const log = await motionLog(page)
       expectNeverDown(log.counts.filter(frame => frame.onScreen))
       expect(log.counts.at(-1)!.shown).toEqual(FINAL_NUMBERS)
-      if (mode === 'load') expectCountUp(log.counts.filter(frame => frame.time < log.counts.find(frame => !frame.onScreen)!.time))
+      if (mode === 'load') expectCountUp(log, log.counts.filter(frame => frame.time < log.counts.find(frame => !frame.onScreen)!.time))
       else expectFinalInEveryFrame(log)
       await expect(page.locator('#stats li > p:first-child')).toHaveText(FINAL_NUMBERS)
 
@@ -865,7 +1023,7 @@ for (const mode of MODES) {
     test.describe(`when the motion script fails half way, count-up ${mode}, at ${viewport.width}x${viewport.height}`, () => {
       test.use({ viewport, reducedMotion: 'no-preference' })
 
-      test('DA20 (c) (D-046 rule 2) nothing stays hidden or at 0: every element shows, the numbers are final in every frame, and the error is reported', async ({ page }) => {
+      test('DA20 (c) (D-046 rule 2, D-050 rule 3) nothing stays hidden or at 0: every element shows, the numbers are final from the start on, and the error is reported', async ({ page }) => {
         const errors: string[] = []
         page.on('console', (message) => {
           if (message.type() === 'error') errors.push(message.text())
@@ -875,7 +1033,7 @@ for (const mode of MODES) {
             throw new Error(text)
           }
         }, INJECTED_ERROR)
-        await openPage(page, mode)
+        await openPage(page, mode, { waitFor: 'paint' })
 
         const read = () => page.evaluate(() => ({
           waiting: document.querySelectorAll('[data-reveal-state="hidden"]').length,
@@ -893,14 +1051,291 @@ for (const mode of MODES) {
         expect.soft(await page.evaluate(notFullyShown), 'not fully shown').toEqual([])
 
         const log = await motionLog(page)
+        const started = scriptStart(log)
+        expect.soft(started, 'the motion script started').not.toBeNull()
         const onScreen = log.counts.filter(frame => frame.onScreen)
         expect(onScreen.length, 'frames with the numbers on screen').toBeGreaterThan(0)
-        expect.soft(onScreen.find(frame => frame.shown.some((value, index) => value !== FINAL_NUMBERS[index])) ?? null, 'first frame on screen without the final values').toBeNull()
-        expect.soft(log.animations.filter(animation => animation.name === 'countup'), 'countup animations').toEqual([])
+        const isFinal = (frame: CountFrame) => frame.shown.every((value, index) => value === FINAL_NUMBERS[index])
+        const isZero = (frame: CountFrame) => frame.shown.every(value => value === '0')
+        if (mode === 'load' && viewport === PHONE) {
+          // D-050 rule 3: mode A on the first screen shows 0 until the script starts (the CSS holds
+          // it), never a value in between, and the final values from the start on.
+          const before = onScreen.filter(frame => started !== null && frame.time < started)
+          const after = onScreen.filter(frame => started === null || frame.time >= started)
+          expect.soft(before.find(frame => !isZero(frame) && !isFinal(frame)) ?? null, 'a frame before the start with a value between 0 and final').toBeNull()
+          expect.soft(after.find(frame => !isFinal(frame)) ?? null, 'first frame from the start on without the final values').toBeNull()
+        }
+        else {
+          expect.soft(onScreen.find(frame => !isFinal(frame)) ?? null, 'first frame on screen without the final values').toBeNull()
+        }
+        // Mode A has its countup animations (holding 0) until the script starts; mode B never has one.
+        if (mode === 'scroll') expect.soft(log.animations.filter(animation => animation.name === 'countup'), 'countup animations').toEqual([])
         expect.soft(errors.filter(error => error.includes(INJECTED_ERROR)).length, 'the error is reported in the console').toBeGreaterThanOrEqual(1)
       })
     })
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// When the motion script starts (D-050), and the web fonts after the first paint
+// ---------------------------------------------------------------------------------------------
+
+/** Makes the browser report no paint timing (fallback (a) of the start, design spec 10.1 item 6). */
+const NO_PAINT_TIMING = () => {
+  const types = PerformanceObserver.supportedEntryTypes.filter(type => type !== 'paint')
+  Object.defineProperty(PerformanceObserver, 'supportedEntryTypes', { configurable: true, get: () => types })
+}
+
+/**
+ * Paint timing that never reports to the page's own script (fallback (b)): its observe() of 'paint'
+ * does nothing. The recorder's observer, added before the page, still gets the paint.
+ */
+const PAINT_NEVER_REPORTED = () => {
+  const observe = PerformanceObserver.prototype.observe
+  const pageUrl = `${location.origin}${location.pathname}:`
+  PerformanceObserver.prototype.observe = function (this: PerformanceObserver, options?: PerformanceObserverInit) {
+    const paint = options && (options.type === 'paint' || (options.entryTypes ?? []).includes('paint'))
+    if (paint && (new Error('stack').stack ?? '').includes(pageUrl)) return
+    return observe.call(this, options)
+  }
+}
+
+/**
+ * Holds the web fonts (/_fonts/) of `page` until it has its first contentful paint (+ `afterMs`),
+ * then releases them one file at a time, in URL order, 300ms apart (D-050 note (3), L-071): the
+ * files are downloaded while held, so each one swaps at a known moment and the result does not
+ * depend on how they happened to arrive. Call before page.goto(); `released` resolves with the
+ * number of font requests held.
+ */
+async function holdFontsUntilFirstPaint(page: Page, afterMs = 0) {
+  let firstPaint!: () => void
+  const painted = new Promise<void>((resolve) => {
+    firstPaint = resolve
+  })
+  await page.exposeBinding('__fontsFirstPaint', () => firstPaint())
+  await page.addInitScript(() => {
+    new PerformanceObserver((list, observer) => {
+      if (!list.getEntriesByName('first-contentful-paint').length) return
+      observer.disconnect()
+      window.__fontsFirstPaint!()
+    }).observe({ type: 'paint', buffered: true })
+  })
+  const downloads: Promise<{ route: Route, response: APIResponse }>[] = []
+  let releasing = false
+  await page.route('**/_fonts/**', async (route) => {
+    const download = route.fetch().then(response => ({ route, response }))
+    downloads.push(download)
+    if (releasing) await route.fulfill({ response: (await download).response })
+  })
+  const released = painted.then(async () => {
+    if (afterMs) await new Promise(resolve => setTimeout(resolve, afterMs))
+    const held = (await Promise.all(downloads)).sort((a, b) => a.route.request().url().localeCompare(b.route.request().url()))
+    releasing = true
+    for (const { route, response } of held) {
+      await route.fulfill({ response })
+      await new Promise(resolve => setTimeout(resolve, 300))
+    }
+    return held.length
+  })
+  return { released }
+}
+
+interface LoadRecord {
+  fcp: number | null
+  /** document.fonts.status at the first contentful paint. */
+  fontsAtFcp: string | null
+  /** The first document.fonts 'loadingdone'. */
+  fontsDoneAt: number | null
+  shifts: { value: number, hadRecentInput: boolean, time: number, sources: string[] }[]
+}
+
+declare global {
+  interface Window {
+    __load: LoadRecord
+  }
+}
+
+/** What a load-shift run records (DA23 (b)): the paint, the fonts, and every layout shift with its sources. */
+function recordLoad() {
+  const load: LoadRecord = { fcp: null, fontsAtFcp: null, fontsDoneAt: null, shifts: [] }
+  window.__load = load
+  const describe = (node: Node | null | undefined): string => {
+    if (!node) return 'none'
+    if (node.nodeType === Node.TEXT_NODE) return `#text in ${describe(node.parentElement)}`
+    const element = node as Element
+    return `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ''}${element.classList.length ? `.${[...element.classList].slice(0, 2).join('.')}` : ''}`
+  }
+  document.fonts.addEventListener('loadingdone', () => {
+    if (load.fontsDoneAt === null) load.fontsDoneAt = performance.now()
+  })
+  type Shift = PerformanceEntry & { value: number, hadRecentInput: boolean, sources: { node: Node | null, previousRect: DOMRectReadOnly, currentRect: DOMRectReadOnly }[] }
+  const rect = (box: DOMRectReadOnly) => [box.x, box.y, box.width, box.height].map(Math.round).join(',')
+  new PerformanceObserver((list) => {
+    for (const entry of list.getEntries() as Shift[]) {
+      load.shifts.push({
+        value: entry.value,
+        hadRecentInput: entry.hadRecentInput,
+        time: Math.round(entry.startTime),
+        sources: (entry.sources ?? []).map(source => `${describe(source.node)} ${rect(source.previousRect)} -> ${rect(source.currentRect)}`),
+      })
+    }
+  }).observe({ type: 'layout-shift', buffered: true })
+  new PerformanceObserver((list, observer) => {
+    const paint = list.getEntriesByName('first-contentful-paint')[0]
+    if (!paint) return
+    observer.disconnect()
+    load.fcp = paint.startTime
+    load.fontsAtFcp = document.fonts.status
+  }).observe({ type: 'paint', buffered: true })
+}
+
+/** The HTML without the inline motion script, which must be found exactly once (G-039). */
+function withoutMotionScript(html: string) {
+  const scripts = html.match(/<script data-hid="page-motion">[\s\S]*?<\/script>/g) ?? []
+  expect(scripts, 'inline motion scripts in the HTML').toHaveLength(1)
+  return html.replace(scripts[0]!, '')
+}
+
+/**
+ * One load with the web fonts held until the first paint (DA23 (b)): the whole layout shift (no
+ * input), and whether the run is valid - at least one font request held, fonts still loading at the
+ * first contentful paint, and done after it. `html` replaces the page (null: as served).
+ */
+async function loadShiftRun(browser: Browser, viewport: { width: number, height: number }, html: string | null) {
+  const context = await browser.newContext({ viewport, reducedMotion: 'no-preference' })
+  try {
+    const page = await context.newPage()
+    if (html !== null) await page.route(url => url.pathname === basePath, route => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }))
+    const fonts = await holdFontsUntilFirstPaint(page)
+    await page.addInitScript(recordLoad)
+    await page.goto('./')
+    const held = await fonts.released
+    await page.evaluate(async () => {
+      await document.fonts.ready
+    })
+    // DA23 (b): the fonts ready, then one more second.
+    await page.waitForTimeout(1000)
+    const load = await page.evaluate(() => window.__load)
+    const counted = load.shifts.filter(shift => !shift.hadRecentInput)
+    const shift = counted.reduce((sum, entry) => sum + entry.value, 0)
+    const largest = counted.reduce<typeof counted[number] | null>((top, entry) => (!top || entry.value > top.value ? entry : top), null)
+    const valid = held > 0 && load.fontsAtFcp === 'loading' && load.fcp !== null && load.fontsDoneAt !== null && load.fontsDoneAt > load.fcp
+    return { valid, held, fcp: load.fcp, fontsAtFcp: load.fontsAtFcp, fontsDoneAt: load.fontsDoneAt, shift, largest }
+  }
+  finally {
+    await context.close()
+  }
+}
+
+for (const viewport of [PHONE, DESKTOP]) {
+  test.describe(`when the motion script starts, at ${viewport.width}x${viewport.height}`, () => {
+    test.use({ viewport, reducedMotion: 'no-preference' })
+
+    for (const mode of MODES) {
+      test(`DA23 (a) (D-050 rules 1 and 3) the motion script reads layout and changes the page only after the first contentful paint, and what it hides, pauses or sets pending is off screen (count-up ${mode})`, async ({ page }) => {
+        await openPage(page, mode)
+        await nextFrames(page)
+        const log = await motionLog(page)
+        expect(log.fcpExact, 'first contentful paint').not.toBeNull()
+        expect(log.firstScriptRead, 'the motion script read layout').not.toBeNull()
+        expect(log.firstMotionChange, 'the motion script changed the page').not.toBeNull()
+        expect(log.firstScriptRead!.time, `first read (${log.firstScriptRead!.what}) after the first contentful paint`).toBeGreaterThanOrEqual(log.fcpExact!)
+        expect(log.firstMotionChange!.time, `first change (${log.firstMotionChange!.what}) after the first contentful paint`).toBeGreaterThanOrEqual(log.fcpExact!)
+        expect(log.atStart.length, 'something waits below the screen').toBeGreaterThan(0)
+        expect(log.atStart.filter(mark => mark.onScreen), 'hidden, paused or set pending while on screen').toEqual([])
+        expect(log.hiddenOnScreen, 'frames with a waiting element on screen').toEqual([])
+        expect(log.blinks, 'elements seen on screen, then hidden').toEqual([])
+        test.info().annotations.push({ type: 'start after the first contentful paint', description: `${(scriptStart(log)! - log.fcpExact!).toFixed(1)}ms (${log.firstScriptRead!.what})` })
+      })
+    }
+  })
+}
+
+for (const [label, fallback] of [['(a) no paint timing', NO_PAINT_TIMING], ['(b) paint never reported to the page', PAINT_NEVER_REPORTED]] as const) {
+  test.describe(`when the start falls back: ${label}, at 375x812`, () => {
+    test.use({ viewport: PHONE, reducedMotion: 'no-preference' })
+
+    test('DA23 (a) (D-050 rule 1) the motion script still starts: things below the screen wait and reveal once scrolled to, the header shadow comes on, the numbers never go down', async ({ page }) => {
+      await page.addInitScript(fallback)
+      await openPage(page)
+      // The design check's timing: 2 seconds after load (fallback (b) starts 1 second after load).
+      await page.waitForFunction(() => performance.now() >= (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming).loadEventEnd + 2000)
+      const atTwoSeconds = await page.evaluate(() => ({
+        sentinels: document.querySelectorAll('.scroll-sentinel').length,
+        waiting: document.querySelectorAll('[data-reveal-state="hidden"]').length,
+        headerShadow: getComputedStyle(document.querySelector('.site-header')!, '::after').opacity,
+      }))
+      expect(atTwoSeconds.sentinels, 'the script started (header sentinel)').toBe(1)
+      expect(atTwoSeconds.waiting, 'elements below the screen wait').toBeGreaterThan(0)
+      expect(atTwoSeconds.headerShadow).toBe('0')
+      // Information, not a criterion: fallback (a) starts two frames after the script ran, so the
+      // first frame has been drawn; Chromium dates the first contentful paint when that frame is
+      // presented, which can be a few ms after the next frame begins.
+      const log = await motionLog(page)
+      test.info().annotations.push({ type: 'start after the first contentful paint', description: `${(scriptStart(log)! - log.fcpExact!).toFixed(1)}ms` })
+
+      await scrollThroughPage(page)
+      expect(await page.evaluate(() => document.querySelectorAll('[data-reveal-state="hidden"]').length)).toBe(0)
+      expect(await page.evaluate(notFullyShown)).toEqual([])
+      expect(await page.evaluate(headerShadowOpacity)).toBe('1')
+      await centreStatsCard(page)
+      await waitForCountUp(page)
+      const counts = (await motionLog(page)).counts.filter(frame => frame.onScreen)
+      expectNeverDown(counts)
+      expect(counts.at(-1)!.shown).toEqual(FINAL_NUMBERS)
+    })
+  })
+}
+
+for (const mode of MODES) {
+  test.describe(`with the web fonts arriving after the motion script started, count-up ${mode}, at 812x375`, () => {
+    test.use({ viewport: LANDSCAPE, reducedMotion: 'no-preference' })
+
+    test('DA22 (D-050, L-069) nothing shifts while the numbers count, although the fonts swapped while they waited below the screen', async ({ page }) => {
+      await serveInMode(page, mode)
+      const fonts = await holdFontsUntilFirstPaint(page, 300)
+      await page.addInitScript(recordMotion)
+      await page.goto('./')
+      const held = await fonts.released
+      await page.evaluate(async () => {
+        await document.fonts.ready
+      })
+      const atLoad = await motionLog(page)
+      const waitSet = atLoad.atStart.find(mark => mark.what === (mode === 'load' ? 'pause countup' : 'pending #stats'))
+      expect(held, 'invalid run: no font request was held').toBeGreaterThan(0)
+      expect(waitSet !== undefined && atLoad.fontsDoneAt !== null && atLoad.fontsDoneAt > waitSet.time,
+        `invalid run: the fonts must finish after the numbers start waiting (${waitSet?.what} at ${waitSet?.time.toFixed(0)}ms, fonts done at ${atLoad.fontsDoneAt}ms)`).toBe(true)
+
+      // The design check's timing (DA22): fonts + 1 second, a quarter of the card for 600ms, then
+      // the middle of the screen for 1.6 seconds.
+      await page.waitForTimeout(1000)
+      await showPartOfStatsCard(page, 0.25)
+      await page.waitForTimeout(600)
+      const countStart = await page.evaluate(() => performance.now())
+      await centreStatsCard(page)
+      await page.waitForTimeout(1600)
+      const log = await motionLog(page)
+      const shifted = log.shifts.filter(shift => !shift.hadRecentInput && shift.time >= countStart)
+      expect(shifted, 'layout shift while counting').toEqual([])
+      expect(log.counts.at(-1)!.shown, 'counted to the final values').toEqual(FINAL_NUMBERS)
+      expect(log.animations.filter(animation => animation.name === 'countup').length, 'countup animations').toBe(3)
+    })
+  })
+}
+
+for (const viewport of [PHONE, DESKTOP, LANDSCAPE]) {
+  test.describe(`with the web fonts arriving after the first paint, at ${viewport.width}x${viewport.height}`, () => {
+    test('DA23 (b) (D-050 rule 6) the load shifts the page no more than the same page without its motion script (+0.001)', async ({ browser, request }) => {
+      const html = await (await request.get('./')).text()
+      const withScript = await loadShiftRun(browser, viewport, null)
+      const withoutScript = await loadShiftRun(browser, viewport, withoutMotionScript(html))
+      for (const [name, run] of [['with the motion script', withScript], ['without it', withoutScript]] as const) {
+        expect(run.valid, `invalid run (${name}): fonts held ${run.held}, status at the first paint ${run.fontsAtFcp}, first paint ${run.fcp?.toFixed(0)}ms, fonts done ${run.fontsDoneAt?.toFixed(0)}ms`).toBe(true)
+      }
+      test.info().annotations.push({ type: 'load shift', description: `with the motion script ${withScript.shift.toFixed(5)}, without it ${withoutScript.shift.toFixed(5)}` })
+      expect(withScript.shift, `load shift with the motion script (largest: ${JSON.stringify(withScript.largest)}) vs without it ${withoutScript.shift.toFixed(5)}`).toBeLessThanOrEqual(withoutScript.shift + 0.001)
+    })
+  })
 }
 
 // ---------------------------------------------------------------------------------------------
