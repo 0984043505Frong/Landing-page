@@ -1,5 +1,7 @@
 @import "tailwindcss";
 @import "./theme.css";
+/* Motion of v1.1: reveal, count-up, hover lift, FAQ answer, header shadow (design spec 10). */
+@import "./motion.css";
 
 /*
  * Width of the page content (design spec 2.5): 20px side padding on phones, 32px from 768px,

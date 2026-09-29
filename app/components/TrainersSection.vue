@@ -9,7 +9,9 @@ import { trainers, trainersSection } from '~/data/trainers'
     aria-labelledby="trainers-heading"
   >
     <div class="page-container">
+      <!-- data-reveal (here and on each card): fades in when scrolled to, done by app/motion/page-motion.js (design spec 10.4). -->
       <SectionHeader
+        data-reveal
         heading-id="trainers-heading"
         :heading="trainersSection.heading"
         :intro="trainersSection.intro"
@@ -23,6 +25,7 @@ import { trainers, trainersSection } from '~/data/trainers'
         <li
           v-for="trainer in trainers"
           :key="trainer.id"
+          data-reveal
         >
           <TrainerCard :trainer="trainer" />
         </li>

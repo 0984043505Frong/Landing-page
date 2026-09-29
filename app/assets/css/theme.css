@@ -1,6 +1,6 @@
 /*
- * Design tokens: the only place where colours, the font, corner radii and shadows are defined (N9).
- * To re-theme the site, change the values here and rebuild.
+ * Design tokens: the only place where colours, the font, corner radii, shadows and motion timings are
+ * defined (N9). To re-theme the site, change the values here and rebuild.
  *
  * The block below is the final design spec (LP-003, section 2.9), copied as it is.
  * Each token becomes a Tailwind utility (bg-brand-900, text-ink, rounded-card, shadow-card, ...) and a
@@ -50,4 +50,25 @@
 
   --shadow-card: 0 1px 2px color-mix(in srgb, var(--color-brand-900) 8%, transparent), 0 12px 32px color-mix(in srgb, var(--color-brand-900) 12%, transparent);
   --shadow-fab: 0 6px 16px color-mix(in srgb, var(--color-ink) 30%, transparent);
+  /* Under the sticky header once the page has scrolled (v1.1, design spec 10.8). */
+  --shadow-header: 0 1px 2px color-mix(in srgb, var(--color-brand-900) 6%, transparent), 0 4px 16px color-mix(in srgb, var(--color-brand-900) 10%, transparent);
+
+  /*
+   * Motion (v1.1, design spec 10.2), used by motion.css. Every duration except the count-up is
+   * 400ms or less (D-030, D-034).
+   */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-countup: cubic-bezier(0.5, 1, 0.89, 1);
+  --duration-press: 150ms;
+  --duration-hover: 200ms;
+  --duration-reveal: 400ms;
+  --duration-countup: 1000ms;
+  /* Count-up mode A only: the numbers start by themselves if the page script never starts them. */
+  --countup-fallback-delay: 1200ms;
+  /* Gap between the items of one batch (reveal and count-up); the 4th and later all wait 240ms. */
+  --stagger-step: 80ms;
+  --reveal-distance: 16px;
+  --lift-card: -4px;
+  --lift-button: -2px;
+  --faq-answer-distance: -8px;
 }

@@ -10,7 +10,9 @@ import { joinPhrases } from '~/utils/phrases'
     aria-labelledby="trainer-service-heading"
   >
     <div class="page-container">
+      <!-- data-reveal (here and on each card): fades in when scrolled to, done by app/motion/page-motion.js (design spec 10.4). -->
       <SectionHeader
+        data-reveal
         heading-id="trainer-service-heading"
         :heading="stepsSection.heading"
         :intro="stepsSection.intro"
@@ -24,6 +26,7 @@ import { joinPhrases } from '~/utils/phrases'
         <li
           v-for="(step, index) in steps"
           :key="joinPhrases(step.title)"
+          data-reveal
           class="relative grid grid-cols-[48px_1fr] content-start gap-4 md:grid-cols-1"
         >
           <span class="relative z-1 grid size-12 place-items-center rounded-full bg-brand-900 text-[20px] leading-none font-bold text-white">

@@ -6,7 +6,8 @@ defineProps<{ course: Course }>()
 </script>
 
 <template>
-  <article class="flex h-full flex-col gap-4 rounded-card border border-t-4 border-border border-t-accent-500 bg-surface p-6">
+  <!-- course-card: lifts on hover (design spec 10.6, assets/css/motion.css). -->
+  <article class="course-card flex h-full flex-col gap-4 rounded-card border border-t-4 border-border border-t-accent-500 bg-surface p-6">
     <div class="flex items-center justify-between gap-3">
       <span
         class="grid size-12 shrink-0 place-items-center rounded-card bg-brand-50 text-brand-700"

@@ -1,0 +1,329 @@
+/*
+ * Motion (v1.1): scroll reveal, count-up of the stats, hover lift, FAQ answer and header shadow
+ * (design spec section 10; rules D-030, D-031, D-034, D-049). Timings are tokens in theme.css.
+ *
+ * - Only transform (and translate / scale / rotate) and opacity move. The count-up changes digits,
+ *   never the size of a box.
+ * - Everything that moves sits inside (prefers-reduced-motion: no-preference), and with reduced
+ *   motion nothing animates at all, the colour fades of v1.0 included.
+ * - This CSS hides nothing by itself. The page script (app/motion/page-motion.js) marks what waits
+ *   for reveal, and only elements that are fully below the screen when it runs. Without JavaScript,
+ *   or if that script never runs, the page looks like v1.0.
+ *
+ * These rules are not in a cascade layer on purpose: they must win over the transition utilities
+ * that the components set for their v1.0 colour fades.
+ */
+
+/* ---------- Reduced motion: no transition or animation at all (D-030 rule 8, design spec 10.10) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* ---------- 1. Scroll reveal + stagger (design spec 10.4) ----------
+   data-reveal-state is written by the page script: "hidden" (waits below the screen), "shown"
+   (fading in), "instant" (focus got there first: shown at once, no rule needed). data-reveal-step
+   is the element's place in the batch that came into view together. */
+@media (prefers-reduced-motion: no-preference) {
+  [data-reveal-state="hidden"] {
+    opacity: 0;
+    transform: translateY(var(--reveal-distance));
+  }
+
+  [data-reveal-state="shown"] {
+    transition:
+      opacity var(--duration-reveal) var(--ease-out),
+      transform var(--duration-reveal) var(--ease-out);
+  }
+
+  [data-reveal-state="shown"][data-reveal-step="1"] {
+    transition-delay: var(--stagger-step);
+  }
+
+  [data-reveal-state="shown"][data-reveal-step="2"] {
+    transition-delay: calc(var(--stagger-step) * 2);
+  }
+
+  [data-reveal-state="shown"][data-reveal-step="3"] {
+    transition-delay: calc(var(--stagger-step) * 3);
+  }
+}
+
+/* ---------- 2. Count-up of the stats (design spec 10.5, D-031, D-034, D-049) ----------
+   The final value (.countup-final, "120+") stays in the HTML and in the accessibility tree at all
+   times. While counting it is transparent and keeps the box at its final size; the aria-hidden
+   layer on top (.countup-live) draws the running digits, right-aligned to the final value, with
+   the suffix's place kept but empty until the end.
+
+   One switch picks the mode: data-countup-mode on #stats (app/motion/countup-mode.ts). Any other
+   value, or none, means no count at all.
+   - "load" (mode A): shows 0 from the first style calculation (fill backwards). CSS alone would
+     start counting before the first paint, so the page script restarts the count on the frame
+     after the first contentful paint (or holds it at 0 while the numbers are off screen). The
+     1200ms fallback delay counts anyway if the script never runs.
+   - "scroll" (mode B): no animation by default, so the first paint shows the final values. The
+     page script marks numbers that are fully below the screen "pending" (0, not seen yet), then
+     "run" once half of the card is on screen. No fallback: without the script nothing waits.
+   - "done" (both modes): the page script failed. Final values, nothing left at 0 (D-046). */
+@property --countup-progress {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+
+@property --countup-on {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+
+@property --countup-value {
+  syntax: '<integer>';
+  inherits: false;
+  initial-value: 0;
+}
+
+/* The running number is padded on the left with FIGURE SPACE (U+2007, one digit wide in Noto Sans
+   Thai) to the final value's number of digits, so its text keeps one width and one start: a new
+   digit (9 to 10, 99 to 100) is not a layout shift (G-036). */
+@counter-style countup-pad-2 {
+  system: extends decimal;
+  pad: 2 "\2007";
+}
+
+@counter-style countup-pad-3 {
+  system: extends decimal;
+  pad: 3 "\2007";
+}
+
+@counter-style countup-pad-4 {
+  system: extends decimal;
+  pad: 4 "\2007";
+}
+
+.countup {
+  position: relative;
+  display: inline-block;
+}
+
+.countup-live {
+  display: none;
+}
+
+@media (scripting: enabled) and (prefers-reduced-motion: no-preference) {
+  /* Mode A: 0 from the first style calculation until the page script starts the count. */
+  [data-countup-mode="load"] .countup {
+    animation: countup var(--duration-countup) var(--ease-countup) calc(var(--countup-fallback-delay) + var(--countup-delay, 0ms)) backwards;
+  }
+
+  /* Mode B: 0 while waiting below the screen, then the same count with the stagger as its only delay. */
+  [data-countup-mode="scroll"][data-countup-state="pending"] .countup {
+    --countup-on: 1;
+  }
+
+  [data-countup-mode="scroll"][data-countup-state="run"] .countup {
+    animation: countup var(--duration-countup) var(--ease-countup) var(--countup-delay, 0ms) backwards;
+  }
+
+  /* After a page script error, in both modes: final values. */
+  [data-countup-mode][data-countup-state="done"] .countup {
+    animation: none;
+    --countup-on: 0;
+  }
+
+  /* Numbers 1 / 2 / 3 start 0 / 80 / 160ms apart. */
+  [data-countup-mode] li:nth-child(2) .countup {
+    --countup-delay: var(--stagger-step);
+  }
+
+  [data-countup-mode] li:nth-child(3) .countup {
+    --countup-delay: calc(var(--stagger-step) * 2);
+  }
+
+  .countup-final {
+    opacity: calc(1 - var(--countup-on));
+  }
+
+  .countup-live {
+    display: block;
+    position: absolute;
+    inset: 0;
+    text-align: right;
+    white-space: nowrap;
+    opacity: var(--countup-on);
+    /* floor(progress x value), but at least 1 once counting has started: for an <integer>,
+       round(x - 0.5) is floor(x). The spec's calc(max(min(1, p * 100000), p * value) - 0.5), with
+       the - 0.5 moved inside max(): the same number (checked in Chromium for 0 <= p <= 1), and the
+       build's CSS minifier can read it (it warns on max() nested in calc()). */
+    --countup-value: max(min(0.5, var(--countup-progress) * 100000 - 0.5), var(--countup-progress) * var(--countup-to) - 0.5);
+    counter-reset: countup var(--countup-value);
+  }
+
+  .countup-live::before {
+    content: counter(countup, var(--countup-pad, decimal));
+  }
+
+  /* The suffix ("+") keeps its place and appears with the final value. */
+  .countup-live::after {
+    content: attr(data-suffix);
+    opacity: 0;
+  }
+}
+
+@keyframes countup {
+  from {
+    --countup-progress: 0;
+    --countup-on: 1;
+  }
+
+  to {
+    --countup-progress: 1;
+    --countup-on: 1;
+  }
+}
+
+/* ---------- 3. Hover and focus (design spec 10.6, D-047: cards lift, option A) ----------
+   Cards cannot be clicked or focused: hover only, and only where a real pointer can hover. Focus
+   rings stay instant (design spec 4.0, G-015): no transition lists outline. The card's shadow sits
+   on ::after, so only its opacity changes. */
+.course-card,
+.trainer-card {
+  position: relative;
+}
+
+.course-card::after,
+.trainer-card::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* The course card's top border is 4px. */
+.course-card::after {
+  top: -4px;
+}
+
+@media (hover: hover) {
+  .course-card:hover::after,
+  .trainer-card:hover::after {
+    opacity: 1;
+  }
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .course-card,
+  .trainer-card {
+    transition: transform var(--duration-hover) var(--ease-out);
+  }
+
+  .course-card::after,
+  .trainer-card::after {
+    transition: opacity var(--duration-hover) var(--ease-out);
+  }
+
+  .course-card:hover,
+  .trainer-card:hover {
+    transform: translateY(var(--lift-card));
+  }
+
+  /* Buttons and contact buttons: the v1.0 colour fade plus a 2px lift; pressing puts them back. */
+  .btn {
+    transition:
+      color var(--duration-press) ease,
+      background-color var(--duration-press) ease,
+      border-color var(--duration-press) ease,
+      transform var(--duration-press) var(--ease-out);
+  }
+
+  .contact-link {
+    transition:
+      background-color var(--duration-press) ease,
+      border-color var(--duration-press) ease,
+      transform var(--duration-press) var(--ease-out);
+  }
+
+  .btn:hover,
+  .contact-link:hover {
+    transform: translateY(var(--lift-button));
+  }
+
+  .btn:active,
+  .contact-link:active {
+    transform: none;
+  }
+}
+
+/* ---------- 4. FAQ answer (design spec 10.7) ----------
+   <details> still opens and closes without JavaScript, and its height never animates. The answer
+   fades and slides 8px into place when a visitor opens a question: the page script marks the
+   question on its click, so the one open at load does not animate. Closing is instant. */
+@media (prefers-reduced-motion: no-preference) {
+  details[name="faq"][data-faq-motion][open] > .faq-answer {
+    animation: faq-answer-in var(--duration-hover) var(--ease-out) backwards;
+  }
+}
+
+@keyframes faq-answer-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--faq-answer-distance));
+  }
+}
+
+/* ---------- 5. Header shadow (design spec 10.8) ----------
+   The shadow lives on a pseudo-element and only its opacity changes. The page script sets
+   data-scrolled on <html> once the page is scrolled more than 8px, with an IntersectionObserver
+   on the sentinel below (no scroll listener). Without JavaScript there is no shadow, as in v1.0. */
+.site-header::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  box-shadow: var(--shadow-header);
+  opacity: 0;
+  pointer-events: none;
+}
+
+html[data-scrolled] .site-header::after {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .site-header::after {
+    transition: opacity var(--duration-hover) linear;
+  }
+}
+
+/* 8px tall, at the very top of the page: once it has left the window, the page has scrolled. */
+.scroll-sentinel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 8px;
+  pointer-events: none;
+}
+
+/* ---------- Print: everything visible, final numbers ---------- */
+@media print {
+  [data-reveal-state] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .countup-final {
+    opacity: 1 !important;
+  }
+
+  .countup-live {
+    display: none !important;
+  }
+}

@@ -9,7 +9,9 @@ import { courses, coursesSection } from '~/data/courses'
     aria-labelledby="courses-heading"
   >
     <div class="page-container">
+      <!-- data-reveal (here and on each card): fades in when scrolled to, done by app/motion/page-motion.js (design spec 10.4). -->
       <SectionHeader
+        data-reveal
         heading-id="courses-heading"
         :heading="coursesSection.heading"
         :intro="coursesSection.intro"
@@ -23,6 +25,7 @@ import { courses, coursesSection } from '~/data/courses'
         <li
           v-for="course in courses"
           :key="course.id"
+          data-reveal
         >
           <CourseCard :course="course" />
         </li>

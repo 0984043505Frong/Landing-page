@@ -4,7 +4,8 @@ import { joinPhrases } from '~/utils/phrases'
 import { newTabAttributes } from '~/utils/links'
 
 // Contact buttons (design spec 4.10). Only their colours fade, not the focus ring (see BaseButton).
-const linkClass = 'flex min-h-16 items-center gap-3.5 rounded-button border border-border bg-surface px-4 py-2.5 text-ink transition-[background-color,border-color] duration-150 hover:border-brand-700 hover:bg-brand-50 active:bg-brand-100'
+// contact-link: lifts on hover (design spec 10.6, assets/css/motion.css).
+const linkClass = 'contact-link flex min-h-16 items-center gap-3.5 rounded-button border border-border bg-surface px-4 py-2.5 text-ink transition-[background-color,border-color] duration-150 hover:border-brand-700 hover:bg-brand-50 active:bg-brand-100'
 const iconCircleClass = 'grid size-10 shrink-0 place-items-center rounded-full'
 const textClass = 'grid min-w-0 leading-[1.4]'
 const labelClass = 'text-[14px] text-ink-muted'
@@ -22,7 +23,11 @@ const emailHref = `mailto:${contact.email}`
   >
     <!-- From 1024px: the contact details on the left, the quote form on the right (design spec 4.10, 4.11). -->
     <div class="page-container grid gap-10 lg:grid-cols-[5fr_7fr] lg:items-start lg:gap-16">
-      <div>
+      <!-- data-reveal (here and on the form card): fades in when scrolled to, done by app/motion/page-motion.js (design spec 10.4). -->
+      <div
+        class="contact-info"
+        data-reveal
+      >
         <SectionHeader
           heading-id="contact-heading"
           :heading="contactSection.heading"
@@ -128,7 +133,8 @@ const emailHref = `mailto:${contact.email}`
       -->
       <div
         id="quote-form"
-        class="rounded-card bg-surface px-5 py-6 shadow-card md:p-10"
+        class="form-card rounded-card bg-surface px-5 py-6 shadow-card md:p-10"
+        data-reveal
       >
         <QuoteForm />
       </div>

@@ -10,7 +10,9 @@ import { faqSection, faqs } from '~/data/faqs'
   >
     <!-- From 1024px: heading left, questions right, in the same columns as the contact section (design spec 4.9). -->
     <div class="page-container lg:grid lg:grid-cols-[5fr_7fr] lg:items-start lg:gap-16">
+      <!-- data-reveal (here and on the list): fades in when scrolled to, done by app/motion/page-motion.js (design spec 10.4). -->
       <SectionHeader
+        data-reveal
         heading-id="faq-heading"
         :heading="faqSection.heading"
         class="mb-8 lg:mb-0"
@@ -18,8 +20,13 @@ import { faqSection, faqs } from '~/data/faqs'
       <!--
         Native <details>: each question opens and closes without JavaScript, and the shared
         name keeps only one open at a time. The first question is open when the page loads.
+        An answer fades in when a visitor opens its question; its height never animates, and it
+        closes at once (design spec 10.7).
       -->
-      <div class="grid gap-3">
+      <div
+        class="faq-list grid gap-3"
+        data-reveal
+      >
         <details
           v-for="(faq, index) in faqs"
           :key="faq.id"
@@ -41,7 +48,7 @@ import { faqSection, faqs } from '~/data/faqs'
               <IconChevronDown class="size-[18px]" />
             </span>
           </summary>
-          <div class="px-5 pb-5 text-ink-muted md:px-6 md:pb-6">
+          <div class="faq-answer px-5 pb-5 text-ink-muted md:px-6 md:pb-6">
             <p>
               <PhraseText :text="faq.answer" />
             </p>

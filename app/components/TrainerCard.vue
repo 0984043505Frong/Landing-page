@@ -5,7 +5,8 @@ defineProps<{ trainer: Trainer }>()
 </script>
 
 <template>
-  <article class="flex h-full items-start gap-4 rounded-card border border-border bg-surface p-6">
+  <!-- trainer-card: lifts on hover (design spec 10.6, assets/css/motion.css). -->
+  <article class="trainer-card flex h-full items-start gap-4 rounded-card border border-border bg-surface p-6">
     <!-- Initials instead of a photo: the trainers are made up (N12). The name follows as the heading. -->
     <span
       class="grid size-16 shrink-0 place-items-center rounded-full bg-brand-900 text-[22px] leading-none font-bold text-white"

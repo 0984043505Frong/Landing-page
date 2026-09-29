@@ -47,9 +47,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <!-- site-header: gets a shadow once the page has scrolled (design spec 10.8, assets/css/motion.css). -->
   <header
     id="site-header"
-    class="sticky top-0 z-50 border-b border-border bg-surface"
+    class="site-header sticky top-0 z-50 border-b border-border bg-surface"
     @focusout="onFocusOut"
   >
     <div class="page-container flex h-16 items-center justify-between gap-4">

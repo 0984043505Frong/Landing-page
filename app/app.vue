@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { site } from '~/data/site'
+import pageMotion from '~/motion/page-motion.js?raw'
 
 // Link previews need an absolute image URL, so resolve the file name against the site URL.
 const ogImageUrl = new URL(site.ogImage, site.url).href
@@ -23,6 +24,14 @@ useSeoMeta({
 useHead({
   link: [{ rel: 'canonical', href: site.url }],
 })
+
+// Motion (design spec 10, D-045): the page-level motion script goes into the generated HTML as it
+// is, as an inline <script> at the end of <body>. It runs once, as soon as the page is parsed, and
+// never waits for this app's JavaScript or for a section to hydrate. Server only, so the text of the
+// script is written into the HTML once and stays out of the JavaScript sent to the browser.
+if (import.meta.server) {
+  useHead({ script: [{ key: 'page-motion', innerHTML: pageMotion, tagPosition: 'bodyClose' }] })
+}
 </script>
 
 <template>
