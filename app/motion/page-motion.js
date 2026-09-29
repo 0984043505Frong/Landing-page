@@ -10,9 +10,9 @@
 // app/assets/css/motion.css.
 //
 // When it starts (D-050): on the frame after the first contentful paint. Until then it only
-// registers what it waits for - no layout or style read and no change to the page - so the first
-// paint comes as early as without it. What it hides, pauses or marks "pending" at start is off
-// screen at that moment, and nothing it changes moves layout.
+// registers what it waits for - no layout or style read, and one change to the page: the count-up
+// arm below (D-053) - so the first paint comes as early as without it. What it hides, pauses or
+// marks "pending" at start is off screen at that moment, and nothing it changes moves layout.
 //
 // If it never runs, nothing is hidden: count-up mode A counts by itself after 1200ms (CSS), mode B
 // keeps the final values. If it fails half way, release() shows everything and puts the numbers on
@@ -21,12 +21,19 @@
   if (!('IntersectionObserver' in window)) return
   const root = document.documentElement
   const stats = document.querySelector('[data-countup-mode]')
+  const ARM = 'data-countup-armed'
+  // Must equal the CSS token --countup-fallback-delay (app/assets/css/theme.css): the script cannot
+  // read CSS before it starts, so change the two together.
+  const FALLBACK_DELAY_MS = 1200
+  // An armed count starts by this time at the latest (D-057). A technical limit, not a design value.
+  const ARM_WATCHDOG_MS = 5000
   let started = false
+  let armed = false
 
   // Error path: every element that waits for reveal is shown at once (no fade), and the count-up
-  // stops on the final values ("done" turns the CSS count off in both modes). The error is still
-  // reported in the console. An error before the start also cancels the start, so nothing is
-  // hidden after it.
+  // stops on the final values ("done" turns the CSS count off in both modes, armed or not). The
+  // error is still reported in the console. An error before the start also cancels the start, so
+  // nothing is hidden after it and an armed count shows its final values instead of waiting at 0.
   function release(error) {
     started = true
     for (const element of document.querySelectorAll('[data-reveal-state="hidden"]')) {
@@ -87,9 +94,9 @@
     // Mode A: the CSS animation shows 0 during its fallback delay, so the first paint already shows
     // 0. The script starts after that paint: numbers on screen count now (the whole 1000ms),
     // numbers off screen stay at 0 and count once half of the stats card is on screen. A count that
-    // has already begun (the CSS fallback ran first, e.g. on a very slow phone) or that release()
-    // cancelled is never paused or restarted, so the number never goes back and never stops half
-    // way.
+    // has already begun (the CSS fallback ran first: the HTML reached this script after 1200ms, so
+    // it did not arm) or that release() cancelled is never paused or restarted, so the number never
+    // goes back and never stops half way.
     const counts = document.getAnimations().filter(animation => animation.animationName === 'countup')
     if (!counts.length) return
     const step = Number.parseFloat(getComputedStyle(root).getPropertyValue('--stagger-step')) || 0
@@ -179,6 +186,12 @@
   const start = guard(() => {
     if (started) return
     started = true
+    // The script takes the count over from the arm: CSS stops pausing it, and from here only the
+    // calls in startCountUp() decide when a number counts. Removed first, before any of those
+    // calls - Chromium still applies an animation-play-state change on top of them (measured: a
+    // pause that came later showed 0 in the middle of a count, L-077). A count the arm paused after
+    // it had begun (arm applied late) simply goes on.
+    if (armed) stats.removeAttribute(ARM)
     // With reduced motion nothing moves: nothing is hidden and the numbers are final (the CSS
     // does not count).
     if (window.matchMedia('(prefers-reduced-motion: no-preference)').matches) {
@@ -194,13 +207,44 @@
     requestAnimationFrame(guard(() => requestAnimationFrame(run)))
   }
 
-  // Wait for the first contentful paint, then start on the next frame (D-050). Nothing above has
-  // read layout or changed the page. Two fallbacks, so a script that runs always starts:
+  // Arm the count-up (mode A only, D-053). CSS starts the count by itself 1200ms after its first
+  // style calculation - a fallback for a page where this script never runs. On a slow phone this
+  // script can start later than that, and the count would then run half-seen before it. So a
+  // script that runs holds the count at 0 (CSS pauses it while #stats has the arm) and starts it
+  // itself, however late. One attribute write, no layout or style read, and nothing on screen
+  // changes: the numbers show 0 either way. Armed only while performance.now() is below 1200ms: no
+  // count can have begun before then (it begins 1200ms or more after the navigation started), so a
+  // script that arrives very late never pauses a count already running - it goes on.
+  function arm() {
+    if (stats && stats.getAttribute('data-countup-mode') === 'load' && performance.now() < FALLBACK_DELAY_MS) {
+      stats.setAttribute(ARM, '')
+      armed = true
+    }
+  }
+
+  // Arm, then wait for the first contentful paint and start on the next frame (D-050). Nothing here
+  // reads layout or style, and the arm is the only change to the page. Two fallbacks, so a script
+  // that runs always starts - and an armed count is always started, or released by guard() on an
+  // error:
   // (a) no paint timing, or its observer cannot be made: start once the first frame has been painted;
   // (b) the first contentful paint is never reported: start 1s after load (still after a painted
   //     frame, so a page that loaded in a background tab starts when it is shown). Normally the
   //     start above ran long before.
+  // Watchdog for an armed count (D-057): the two waits above hang on the page's own events - the
+  // first paint report and load. If neither ever comes (a resource that never finishes, and no
+  // paint report), the numbers would wait at 0 for good. So the arm also sets a timer that depends
+  // on time only: 5s after the arm, start after the next painted frame unless something already
+  // started. start() runs once, so when it loses the race it does nothing. DOMContentLoaded would
+  // not do: it waits for deferred module scripts (the page's own JavaScript), so it can hang with
+  // load. The slowest start measured (CPU x4 + slow 4G, LP-018) came 2.4s after navigation - well
+  // before the watchdog.
   guard(() => {
+    arm()
+    if (armed) {
+      setTimeout(guard(() => {
+        if (!started) afterNextPaint(start)
+      }), ARM_WATCHDOG_MS)
+    }
     let waitsForPaint = false
     try {
       if (window.PerformanceObserver && (PerformanceObserver.supportedEntryTypes || []).includes('paint')) {

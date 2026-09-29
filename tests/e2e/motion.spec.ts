@@ -28,7 +28,9 @@ import { COUNTUP_MODE } from '../../app/motion/countup-mode'
  *
  * The motion script starts on the frame after the first contentful paint (D-050). The recorder
  * notes its first layout / style read and its first change to the page (DA23 (a)): tests use that
- * moment as "the script started", and check that nothing happened before the first paint.
+ * moment as "the script started", and check that nothing happened before the first paint. The one
+ * change allowed earlier is the count-up arm of mode A (data-countup-armed, D-053): it is recorded
+ * on its own and never counts as the start.
  */
 
 type CountUpMode = 'load' | 'scroll'
@@ -65,6 +67,17 @@ const SPEC = {
   v10Colours: ['color', 'background-color', 'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color'],
   /** Where an element ends after its motion = where it is with reduced motion, give or take this. */
   positionTolerancePx: 0.5,
+  /** Mode A: the CSS counts by itself this long after its first style calculation (--countup-fallback-delay). */
+  fallbackDelayMs: 1200,
+  /** Fallback (b) of the start: load + 1000ms (design spec 10.1 item 6). */
+  fallbackBMs: 1000,
+  /** D-057: an armed count starts by arm + 5000ms (watchdog); on this build, within 5500ms (D-057 note 1). */
+  armWatchdogMs: 5000,
+  armWatchdogMaxMs: 5500,
+  /** DA24 (a) / (b): the main thread is kept busy until FCP + 1300ms (D-053 rule 4). */
+  busyAfterFcpMs: 1300,
+  /** DA24 (e): the HTML reaches the motion script only after this long. */
+  lateParseMs: 2000,
 }
 
 /** The final text of each number, as in app/data/stats.ts (e.g. '120+'). */
@@ -135,12 +148,20 @@ interface MotionLog {
   blinks: string[]
   /** Count-up timing (Web Animations) in the first frame in which number 1 counts (DA16, D-052). */
   countupTiming: { startTime: number, delay: number }[] | null
+  /** Every write (set) and removal of the count-up arm, data-countup-armed (D-053, DA23 (a)). */
+  arm: { time: number, set: boolean, target: string }[]
+  /** When the motion script ran (its first observe() call; it arms just before it), or null. */
+  pageScriptRanAt: number | null
 }
 
 declare global {
   interface Window {
     __motion: MotionLog
     __fontsFirstPaint?: () => void
+    /** DA24 (a) / (b): the busy period after the first paint, and when the paint was handed to the page. */
+    __busy?: { fcp: number, from: number, end: number, pageWaiting: boolean, handedAt: number | null } | null
+    /** DA24 (e): when the test script that holds the parser up ran (the motion script runs right after). */
+    __lateParseAt?: number
   }
 }
 
@@ -158,6 +179,7 @@ function recordMotion() {
   const log: MotionLog = {
     fcp: null, fcpExact: null, fontsDoneAt: null, frames: 0, maxAnimations: 0, animations: [], counts: [], shifts: [],
     hiddenOnScreen: [], revealStates: {}, firstScriptRead: null, firstMotionChange: null, atStart: [], blinks: [], countupTiming: null,
+    arm: [], pageScriptRanAt: null,
   }
   window.__motion = log
 
@@ -238,6 +260,21 @@ function recordMotion() {
     }
     quiet = false
   }).observe(document, { subtree: true, attributes: true, attributeFilter: ['data-reveal-state', 'data-reveal-step', 'data-countup-state', 'data-scrolled', 'data-faq-motion'] })
+  // The count-up arm (D-053): the one change allowed before the start, so it is kept apart from the
+  // changes above and never counts as the start - every write and removal, with its time and target.
+  new MutationObserver((records) => {
+    for (const record of records) {
+      const element = record.target as Element
+      log.arm.push({ time: performance.now(), set: element.hasAttribute(record.attributeName!), target: describe(element) })
+    }
+  }).observe(document, { subtree: true, attributes: true, attributeFilter: ['data-countup-armed'] })
+  // When the motion script ran: it arms, then registers its paint wait in the same task, so its first
+  // observe() call dates it (the arm is due only if that was before 1200ms - D-053 rule 3 (b)).
+  const observePaint = PerformanceObserver.prototype.observe
+  PerformanceObserver.prototype.observe = function (this: PerformanceObserver, options?: PerformanceObserverInit) {
+    if (log.pageScriptRanAt === null && (new Error('stack').stack ?? '').split('\n').some(line => line.includes(pageUrl))) log.pageScriptRanAt = performance.now()
+    return observePaint.call(this, options)
+  }
   const prepend = Element.prototype.prepend
   Element.prototype.prepend = function (this: Element, ...nodes: (Node | string)[]) {
     if (nodes.some(node => node instanceof Element && node.classList.contains('scroll-sentinel'))) changed('prepend .scroll-sentinel')
@@ -539,16 +576,40 @@ async function focusWaitingElement(page: Page, key: 'Tab' | 'Shift+Tab') {
   return null
 }
 
-/** The shown values must count up: never down, from the first paint to the final value. */
-function expectNeverDown(frames: CountFrame[]) {
-  const downs = frames.flatMap((frame, index) => {
+/** Every step down of a shown value, from one frame to the next. */
+function stepsDown(frames: CountFrame[]) {
+  return frames.flatMap((frame, index) => {
     if (index === 0) return []
     return frame.shown.flatMap((value, number) => {
       const before = Number.parseInt(frames[index - 1]!.shown[number]!, 10)
       return Number.parseInt(value, 10) < before ? [`number ${number + 1}: ${before} then ${value} at ${frame.time}ms`] : []
     })
   })
-  expect(downs, 'a number that went down on screen').toEqual([])
+}
+
+/** The shown values must count up: never down, from the first paint to the final value. */
+function expectNeverDown(frames: CountFrame[]) {
+  expect(stepsDown(frames), 'a number that went down on screen').toEqual([])
+}
+
+/**
+ * Per number, over the frames given (numbers on screen): what it showed first, when it first
+ * changed, and how long it took from there to its final value.
+ */
+function countSpans(onScreen: CountFrame[]) {
+  const first = onScreen[0]
+  return FINAL_NUMBERS.map((finalText, index) => {
+    const firstChange = onScreen.find(frame => frame.shown[index] !== first?.shown[index])
+    const finalAt = onScreen.find(frame => frame.shown[index] === finalText && frame.time >= (firstChange?.time ?? 0))
+    return { finalText, firstShown: first?.shown[index], firstChangeAt: firstChange?.time, spanMs: firstChange && finalAt ? finalAt.time - firstChange.time : null }
+  })
+}
+
+/** When the count-up arm was written and removed (D-053), as recorded. */
+function armOf(log: MotionLog) {
+  const writes = log.arm.filter(entry => entry.set)
+  const removals = log.arm.filter(entry => !entry.set)
+  return { writes: writes.length, removals: removals.length, target: writes[0]?.target ?? null, writtenAt: writes[0]?.time ?? null, removedAt: removals[0]?.time ?? null }
 }
 
 /**
@@ -561,12 +622,7 @@ function expectNeverDown(frames: CountFrame[]) {
 function expectCountUp(log: MotionLog, frames: CountFrame[] = log.counts) {
   const onScreen = frames.filter(frame => frame.onScreen)
   expect(onScreen.length, 'frames with the numbers on screen').toBeGreaterThan(30)
-  const first = onScreen[0]!
-  const numbers = FINAL_NUMBERS.map((finalText, index) => {
-    const firstChange = onScreen.find(frame => frame.shown[index] !== first.shown[index])
-    const finalAt = onScreen.find(frame => frame.shown[index] === finalText && frame.time >= (firstChange?.time ?? 0))
-    return { finalText, firstShown: first.shown[index], firstChangeAt: firstChange?.time, spanMs: firstChange && finalAt ? finalAt.time - firstChange.time : null }
-  })
+  const numbers = countSpans(onScreen)
   expect(numbers.map(number => number.firstShown), 'first value seen').toEqual(FINAL_NUMBERS.map(() => '0'))
   for (const number of numbers) {
     expect(number.spanMs, `${number.finalText}: first change to final value`).not.toBeNull()
@@ -1232,7 +1288,7 @@ for (const viewport of [PHONE, DESKTOP]) {
     test.use({ viewport, reducedMotion: 'no-preference' })
 
     for (const mode of MODES) {
-      test(`DA23 (a) (D-050 rules 1 and 3) the motion script reads layout and changes the page only after the first contentful paint, and what it hides, pauses or sets pending is off screen (count-up ${mode})`, async ({ page }) => {
+      test(`DA23 (a) (D-050 rules 1 and 3, D-053) the motion script reads layout and changes the page only after the first contentful paint - but for the count-up arm of mode A - and what it hides, pauses or sets pending is off screen (count-up ${mode})`, async ({ page }) => {
         await openPage(page, mode)
         await nextFrames(page)
         const log = await motionLog(page)
@@ -1245,6 +1301,26 @@ for (const viewport of [PHONE, DESKTOP]) {
         expect(log.atStart.filter(mark => mark.onScreen), 'hidden, paused or set pending while on screen').toEqual([])
         expect(log.hiddenOnScreen, 'frames with a waiting element on screen').toEqual([])
         expect(log.blinks, 'elements seen on screen, then hidden').toEqual([])
+
+        // The count-up arm (D-053, DA23 (a) as amended): recorded apart, never the first change. Mode A
+        // writes it once, on <section id="stats">, while the script is parsed (before 1200ms and before
+        // the start), and removes it once, at the start; mode B never writes it.
+        const arm = armOf(log)
+        expect(log.firstMotionChange!.what, 'the start is not the arm').not.toContain('data-countup-armed')
+        if (mode === 'load') {
+          expect(log.pageScriptRanAt, 'invalid run: when the motion script ran was not recorded').not.toBeNull()
+          expect(log.pageScriptRanAt!, 'invalid run: the motion script ran after 1200ms, so it must not arm (D-053 rule 3 (b)) - this test needs it earlier').toBeLessThan(SPEC.fallbackDelayMs)
+          expect(arm.writes, `arm writes (${JSON.stringify(arm)})`).toBe(1)
+          expect(arm.target, 'the arm is on <section id="stats">').toMatch(/^section#stats/)
+          expect(arm.writtenAt!, 'arm written before 1200ms').toBeLessThan(SPEC.fallbackDelayMs)
+          expect(arm.writtenAt!, 'arm written before the start').toBeLessThanOrEqual(scriptStart(log)!)
+          expect(arm.removals, `arm removals (${JSON.stringify(arm)})`).toBe(1)
+          expect(arm.removedAt!, 'arm removed at the start, after the first contentful paint').toBeGreaterThanOrEqual(log.fcpExact!)
+          test.info().annotations.push({ type: 'arm', description: `script ran ${log.pageScriptRanAt!.toFixed(1)}ms, written ${arm.writtenAt!.toFixed(1)}ms, removed ${(arm.removedAt! - log.fcpExact!).toFixed(1)}ms after the first contentful paint` })
+        }
+        else {
+          expect(arm.writes, 'mode B never arms').toBe(0)
+        }
         test.info().annotations.push({ type: 'start after the first contentful paint', description: `${(scriptStart(log)! - log.fcpExact!).toFixed(1)}ms (${log.firstScriptRead!.what})` })
       })
     }
@@ -1339,6 +1415,317 @@ for (const viewport of [PHONE, DESKTOP, LANDSCAPE]) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Count-up mode A when the motion script starts late, and every way out of the arm (D-053, D-057,
+// DA24). Each delay comes from the test (a busy main thread, a held response, a paint that is never
+// reported), not from the speed of the machine, so the result is the same on every run and in CI.
+// DA24 is about mode A, so it runs in mode A whatever the switch says. Its checks are soft and named
+// after the case: a broken build reports every rule it breaks, and a negative test can show that it
+// failed by the rule it targets (D-056 rule 3). A run that does not set up its case fails as an
+// "invalid run" - it never passes quietly.
+// ---------------------------------------------------------------------------------------------
+
+/** Serves the page in count-up mode A, with `rewrite` applied to its HTML, from the next navigation on. */
+async function serveModeA(page: Page, rewrite?: (html: string) => string) {
+  if (!rewrite && COUNTUP_MODE === 'load') return
+  const html = withCountUpMode(await (await page.request.get('./')).text(), 'load')
+  const body = rewrite ? rewrite(html) : html
+  await page.route(url => url.pathname === basePath, route => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body }))
+}
+
+/**
+ * DA24 (a) / (b): the main thread stays busy from the first contentful paint until FCP + 1300ms,
+ * like the long framework frame on a slow phone (LP-018 AC11 (c)); without the arm, the CSS
+ * fallback (1200ms after the first style calculation) would begin to count meanwhile. The motion
+ * script's paint observer is held back and handed the paint two frames after the busy period: the
+ * first frame after a long task may still use the animation clock of the frame before it, and the
+ * result would then be down to luck (L-078). Added after the recorder, which keeps its own observer.
+ */
+const BUSY_AFTER_FCP = () => {
+  const Native = window.PerformanceObserver
+  const pageUrl = `${location.origin}${location.pathname}:`
+  let pageWait: { observer: PerformanceObserver, callback: PerformanceObserverCallback } | null = null
+  window.PerformanceObserver = class extends Native {
+    readonly heldCallback: PerformanceObserverCallback
+    constructor(callback: PerformanceObserverCallback) {
+      super(callback)
+      this.heldCallback = callback
+    }
+
+    override observe(options?: PerformanceObserverInit) {
+      const paint = options && (options.type === 'paint' || (options.entryTypes ?? []).includes('paint'))
+      if (paint && (new Error('stack').stack ?? '').includes(pageUrl)) {
+        pageWait = { observer: this, callback: this.heldCallback }
+        return
+      }
+      return super.observe(options)
+    }
+  }
+  window.__busy = null
+  new Native((list, observer) => {
+    const paint = list.getEntriesByName('first-contentful-paint')[0]
+    if (!paint) return
+    observer.disconnect()
+    const from = performance.now()
+    const pageWaiting = pageWait !== null
+    while (performance.now() < paint.startTime + 1300) {
+      // Busy: no frame and no other task until FCP + 1300ms (SPEC.busyAfterFcpMs).
+    }
+    const busy = { fcp: paint.startTime, from, end: performance.now(), pageWaiting, handedAt: null as number | null }
+    window.__busy = busy
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      busy.handedAt = performance.now()
+      if (pageWait) pageWait.callback.call(pageWait.observer, list, pageWait.observer)
+    }))
+  }).observe({ type: 'paint', buffered: true })
+}
+
+/** DA24 (d2): the motion script's requestAnimationFrame throws, so its paint callback fails before it schedules the start. */
+const RAF_ERROR = 'LP-018 test: requestAnimationFrame fails on purpose'
+const RAF_THROWS = (message: string) => {
+  const requestFrame = window.requestAnimationFrame
+  const pageUrl = `${location.origin}${location.pathname}:`
+  window.requestAnimationFrame = function (callback: FrameRequestCallback) {
+    if ((new Error('stack').stack ?? '').includes(pageUrl)) throw new Error(message)
+    return requestFrame.call(window, callback)
+  }
+}
+
+/** DA24 (e): a test script, answered only after SPEC.lateParseMs, holds the parser up just before the motion script. */
+const LATE_PARSE_SCRIPT = '__lp018-late-parse.js'
+function withLateParse(html: string) {
+  const tags = html.match(/<script data-hid="page-motion">/g) ?? []
+  expect(tags, 'inline motion scripts in the HTML').toHaveLength(1)
+  return html.replace(tags[0]!, `<script src="${basePath}${LATE_PARSE_SCRIPT}"></script>${tags[0]!}`)
+}
+
+/** Resolves once the page's clock reaches `ms` after the end of its load event. */
+function waitAfterLoad(page: Page, ms: number) {
+  return page.waitForFunction((after) => {
+    const loadEnd = (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming).loadEventEnd
+    return loadEnd > 0 && performance.now() >= loadEnd + after
+  }, ms)
+}
+
+function loadEventEnd(page: Page) {
+  return page.evaluate(() => (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming).loadEventEnd)
+}
+
+/** DA24: each number on screen counts 950-1050ms as seen (soft, named after the case). */
+function expectSpans(label: string, numbers: ReturnType<typeof countSpans>) {
+  const outside = numbers.filter(number => number.spanMs === null || number.spanMs < SPEC.countUpMinMs || number.spanMs > SPEC.countUpMaxMs)
+  expect.soft(outside.map(number => `${number.finalText}: ${number.spanMs}ms`), `${label}: count-up span outside ${SPEC.countUpMinMs}-${SPEC.countUpMaxMs}ms`).toEqual([])
+}
+
+/**
+ * DA24: the numbers on screen show 0 in every frame before the motion script starts (the arm holds
+ * them), then each counts 950-1050ms as seen, never goes down and ends on its final value.
+ * `notBefore`: no number may change before this moment.
+ */
+function expectHeldThenCounted(label: string, log: MotionLog, { notBefore = null }: { notBefore?: number | null } = {}) {
+  const started = scriptStart(log)
+  const onScreen = log.counts.filter(frame => frame.onScreen)
+  expect(onScreen.length, `${label}: frames with the numbers on screen`).toBeGreaterThan(0)
+  expect.soft(started, `${label}: the motion script never started`).not.toBeNull()
+  const beforeStart = onScreen.filter(frame => started === null || frame.time < started)
+  expect.soft(beforeStart.find(frame => frame.shown.some(value => value !== '0')) ?? null, `${label}: a number on screen was not 0 before the motion script started`).toBeNull()
+  const numbers = countSpans(onScreen)
+  if (notBefore !== null) {
+    const firstChange = Math.min(...numbers.map(number => number.firstChangeAt ?? Number.POSITIVE_INFINITY))
+    expect.soft(firstChange, `${label}: a number changed before the motion script was handed the paint (${notBefore.toFixed(0)}ms)`).toBeGreaterThanOrEqual(notBefore)
+  }
+  expectSpans(label, numbers)
+  expect.soft(stepsDown(onScreen), `${label}: a number went down on screen`).toEqual([])
+  expect.soft(onScreen.at(-1)!.shown, `${label}: the numbers did not end on their final values`).toEqual(FINAL_NUMBERS)
+  test.info().annotations.push({ type: label, description: `start ${started === null ? 'none' : `${(started - log.fcpExact!).toFixed(1)}ms after the first contentful paint`}; frames before it ${beforeStart.length}; spans ${numbers.map(number => number.spanMs).join(' / ')}ms` })
+}
+
+test.describe('count-up mode A when the motion script starts late, and every way out of the arm (DA24)', () => {
+  test.use({ reducedMotion: 'no-preference' })
+
+  test.describe('at 375x812', () => {
+    test.use({ viewport: PHONE })
+
+    test('DA24 (a) (D-053) the main thread is busy until FCP + 1300ms: the numbers wait at 0 until the script starts, then count the whole 1000ms', async ({ page }) => {
+      await serveModeA(page)
+      await page.addInitScript(recordMotion)
+      await page.addInitScript(BUSY_AFTER_FCP)
+      await page.goto('./')
+      await page.waitForFunction(() => window.__busy?.handedAt != null && performance.now() >= window.__busy.end + 2000)
+      const log = await motionLog(page)
+      const busy = (await page.evaluate(() => window.__busy))!
+      const started = scriptStart(log)
+      expect(busy.pageWaiting && busy.end - busy.fcp >= SPEC.busyAfterFcpMs && busy.handedAt !== null && (started === null || started >= busy.handedAt),
+        `invalid run: busy from FCP + ${(busy.from - busy.fcp).toFixed(0)} to + ${(busy.end - busy.fcp).toFixed(0)}ms, script waiting ${busy.pageWaiting}, handed at ${busy.handedAt?.toFixed(0)}ms, started ${started?.toFixed(0)}ms`).toBe(true)
+      expectHeldThenCounted('DA24 (a)', log, { notBefore: busy.handedAt })
+    })
+
+    test('DA24 (c) (D-053 rule 1) when the motion script never ran, nothing arms: the CSS counts by itself after 1200ms and ends on the final values', async ({ page }) => {
+      await serveModeA(page, withoutMotionScript)
+      await page.addInitScript(recordMotion)
+      await page.goto('./')
+      await waitAfterLoad(page, 3000)
+      const log = await motionLog(page)
+      const onScreen = log.counts.filter(frame => frame.onScreen)
+      expect(onScreen.length, 'DA24 (c): frames with the numbers on screen').toBeGreaterThan(0)
+      const numbers = countSpans(onScreen)
+      const delays = log.animations.filter(animation => animation.name === 'countup').map(animation => animation.delay)
+      const expected = [0, 1, 2].map(index => SPEC.fallbackDelayMs + index * SPEC.staggerMs)
+      const firstChange = Math.min(...numbers.map(number => number.firstChangeAt ?? Number.POSITIVE_INFINITY))
+      expect.soft(armOf(log).writes, 'DA24 (c): the arm was written although the motion script never ran').toBe(0)
+      expect.soft(delays.length === 3 && delays.every((delay, index) => Math.abs(delay - expected[index]!) <= 1), `DA24 (c): CSS fallback not 3 countup animations delayed 1200 / 1280 / 1360ms (${delays.join(' / ')})`).toBe(true)
+      expect.soft(firstChange, 'DA24 (c): a number changed before the 1200ms fallback delay').toBeGreaterThanOrEqual(SPEC.fallbackDelayMs)
+      expectSpans('DA24 (c)', numbers)
+      expect.soft(stepsDown(onScreen), 'DA24 (c): a number went down on screen').toEqual([])
+      expect.soft(onScreen.at(-1)!.shown, 'DA24 (c): the numbers did not end on their final values').toEqual(FINAL_NUMBERS)
+      test.info().annotations.push({ type: 'DA24 (c)', description: `delays ${delays.join(' / ')}ms; first change ${firstChange}ms; spans ${numbers.map(number => number.spanMs).join(' / ')}ms` })
+    })
+
+    test('DA24 (d1) (D-053 rule 3, D-057) armed, and the first contentful paint never reported: the script starts via fallback (b), load + 1000ms, before the watchdog could; 0 until then, then the whole count', async ({ page }) => {
+      await serveModeA(page)
+      await page.addInitScript(PAINT_NEVER_REPORTED)
+      await page.addInitScript(recordMotion)
+      await page.goto('./')
+      // Long enough for the watchdog too (arm + 5000ms): a page without fallback (b) would start then,
+      // and must still fail - by the way it started, not by the time the test waited (L-085).
+      await page.waitForFunction(() => {
+        const loadEnd = (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming).loadEventEnd
+        const armAt = window.__motion.arm.find(entry => entry.set)?.time ?? 0
+        return loadEnd > 0 && performance.now() >= Math.max(loadEnd + 3500, armAt + 6500)
+      })
+      const log = await motionLog(page)
+      const loadEnd = await loadEventEnd(page)
+      const arm = armOf(log)
+      expect(arm.writes === 1 && loadEnd + 1500 < arm.writtenAt! + SPEC.armWatchdogMs,
+        `invalid run: armed ${arm.writes} time(s) at ${arm.writtenAt?.toFixed(0)}ms, load ended ${loadEnd.toFixed(0)}ms (load + 1500 must come before arm + 5000)`).toBe(true)
+      const started = scriptStart(log)
+      const viaFallbackB = started !== null && started - loadEnd >= SPEC.fallbackBMs && started < arm.writtenAt! + SPEC.armWatchdogMs
+      const way = `load + ${started === null ? '-' : (started - loadEnd).toFixed(1)}ms (at least ${SPEC.fallbackBMs}), arm + ${started === null ? '-' : (started - arm.writtenAt!).toFixed(1)}ms (under ${SPEC.armWatchdogMs})`
+      expect.soft(viaFallbackB, `DA24 (d1) started via fallback (b): ${way}`).toBe(true)
+      test.info().annotations.push({ type: 'DA24 (d1) start', description: way })
+      expectHeldThenCounted('DA24 (d1)', log)
+    })
+
+    test('DA24 (d2) (D-046 rule 2, D-053 rule 3) armed, then an error before the start: released - 0 before it, the final values after it, never a value in between', async ({ page }) => {
+      const errors: string[] = []
+      page.on('console', (message) => {
+        if (message.type() === 'error') errors.push(message.text())
+      })
+      await serveModeA(page)
+      await page.addInitScript(RAF_THROWS, RAF_ERROR)
+      await page.addInitScript(recordMotion)
+      await page.goto('./')
+      await waitAfterLoad(page, 2500)
+      const log = await motionLog(page)
+      expect(armOf(log).writes, 'invalid run: the count-up was not armed once').toBe(1)
+      const end = await page.evaluate(() => ({
+        state: document.querySelector('#stats')!.getAttribute('data-countup-state'),
+        countUps: document.getAnimations().filter(animation => (animation as CSSAnimation).animationName === 'countup').length,
+      }))
+      const onScreen = log.counts.filter(frame => frame.onScreen)
+      expect(onScreen.length, 'DA24 (d2): frames with the numbers on screen').toBeGreaterThan(0)
+      const isFinal = (frame: CountFrame) => frame.shown.every((value, index) => value === FINAL_NUMBERS[index])
+      const isZero = (frame: CountFrame) => frame.shown.every(value => value === '0')
+      const backToZero = onScreen.filter((frame, index) => index > 0 && isZero(frame) && isFinal(onScreen[index - 1]!))
+      expect.soft(end, 'DA24 (d2): the error before the start was not released (done, no countup)').toEqual({ state: 'done', countUps: 0 })
+      expect.soft(onScreen.find(frame => !isZero(frame) && !isFinal(frame)) ?? null, 'DA24 (d2): a number on screen was half way (neither 0 nor final)').toBeNull()
+      expect.soft(backToZero[0] ?? null, 'DA24 (d2): a number went from its final value back to 0').toBeNull()
+      expect.soft(onScreen.at(-1)!.shown, 'DA24 (d2): the numbers did not end on their final values').toEqual(FINAL_NUMBERS)
+      expect.soft(errors.filter(error => error.includes(RAF_ERROR)).length, 'DA24 (d2): the error was not reported in the console').toBeGreaterThanOrEqual(1)
+      test.info().annotations.push({ type: 'DA24 (d2)', description: `frames on screen ${onScreen.length}: at 0 ${onScreen.filter(isZero).length}, final ${onScreen.filter(isFinal).length}; end ${JSON.stringify(end)}` })
+    })
+
+    test('DA24 (d3) (D-057) armed, the first contentful paint never reported and load never fires: the watchdog starts the count 5000-5500ms after the arm; 0 until then, then the whole count', async ({ page }) => {
+      await serveModeA(page)
+      // One web font file is never answered, so the load event never fires (L-086): the page is opened
+      // up to DOMContentLoaded only, and nothing here waits for load or document.fonts.ready.
+      const held: Route[] = []
+      await page.route('**/_fonts/**', (route) => {
+        if (held.length) return route.continue()
+        held.push(route)
+      })
+      await page.addInitScript(PAINT_NEVER_REPORTED)
+      await page.addInitScript(recordMotion)
+      await page.goto('./', { waitUntil: 'domcontentloaded' })
+      await page.waitForFunction(() => performance.now() >= 7500)
+      const log = await motionLog(page)
+      const loadEventStart = await page.evaluate(() => (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming).loadEventStart)
+      const arm = armOf(log)
+      expect(arm.writes === 1 && loadEventStart === 0 && held.length >= 1,
+        `invalid run: armed ${arm.writes} time(s), load event start ${loadEventStart}, font requests held ${held.length}`).toBe(true)
+      const started = scriptStart(log)
+      const afterArm = started === null ? null : started - arm.writtenAt!
+      expect.soft(afterArm !== null && afterArm >= SPEC.armWatchdogMs && afterArm <= SPEC.armWatchdogMaxMs,
+        `DA24 (d3): the watchdog did not start the count ${SPEC.armWatchdogMs}-${SPEC.armWatchdogMaxMs}ms after the arm (arm + ${afterArm?.toFixed(0)}ms)`).toBe(true)
+      test.info().annotations.push({ type: 'DA24 (d3) start', description: `arm + ${afterArm?.toFixed(1)}ms; load event start ${loadEventStart}; font requests held ${held.length}` })
+      expectHeldThenCounted('DA24 (d3)', log)
+      // Let the held request go before the page closes (G-045).
+      await Promise.all(held.map(route => route.abort().catch(() => undefined)))
+    })
+
+    test('DA24 (e) (D-053 rule 3 (b)) the HTML reaches the motion script after 1200ms, when the CSS count has begun: no arm, and the running count is neither paused nor restarted', async ({ page }) => {
+      await serveModeA(page, withLateParse)
+      await page.route(url => url.pathname.endsWith(`/${LATE_PARSE_SCRIPT}`), async (route) => {
+        await new Promise(resolve => setTimeout(resolve, SPEC.lateParseMs))
+        await route.fulfill({ status: 200, contentType: 'text/javascript', body: 'window.__lateParseAt = performance.now()' })
+      })
+      // The start then comes via fallback (b), well after the CSS count began: a script that paused
+      // that count would show it (a start right away could hide a pause of a frame or two).
+      await page.addInitScript(PAINT_NEVER_REPORTED)
+      await page.addInitScript(recordMotion)
+      await page.goto('./')
+      await waitAfterLoad(page, 3500)
+      const log = await motionLog(page)
+      const lateParseAt = await page.evaluate(() => window.__lateParseAt ?? null)
+      const onScreen = log.counts.filter(frame => frame.onScreen)
+      const numbers = countSpans(onScreen)
+      const firstChange = Math.min(...numbers.map(number => number.firstChangeAt ?? Number.POSITIVE_INFINITY))
+      expect(lateParseAt !== null && lateParseAt >= SPEC.fallbackDelayMs && firstChange < lateParseAt,
+        `invalid run: the motion script ran at ${lateParseAt?.toFixed(0)}ms (must be 1200ms or later), the numbers first changed at ${firstChange}ms (must be before it)`).toBe(true)
+      expect.soft(armOf(log).writes, 'DA24 (e): the arm was written after 1200ms').toBe(0)
+      expect.soft(scriptStart(log), 'DA24 (e): the motion script never started').not.toBeNull()
+      expectSpans('DA24 (e)', numbers)
+      expect.soft(stepsDown(onScreen), 'DA24 (e): a number went down on screen').toEqual([])
+      expect.soft(onScreen.at(-1)!.shown, 'DA24 (e): the numbers did not end on their final values').toEqual(FINAL_NUMBERS)
+      test.info().annotations.push({ type: 'DA24 (e)', description: `script ran ${lateParseAt?.toFixed(0)}ms, first change ${firstChange}ms, spans ${numbers.map(number => number.spanMs).join(' / ')}ms` })
+    })
+  })
+
+  test.describe('at 812x375', () => {
+    test.use({ viewport: LANDSCAPE })
+
+    test('DA24 (b) (D-053) the main thread is busy until FCP + 1300ms: below the screen the numbers wait paused at 0, still with a quarter of the card in view, and count once it is in the middle', async ({ page }) => {
+      await serveModeA(page)
+      await page.addInitScript(recordMotion)
+      await page.addInitScript(BUSY_AFTER_FCP)
+      await page.goto('./')
+      await page.waitForFunction(() => window.__busy != null && performance.now() >= window.__busy.end + 500)
+      const held = await page.evaluate(readCountUp)
+      const busy = (await page.evaluate(() => window.__busy))!
+      const started = scriptStart(await motionLog(page))
+      expect(busy.pageWaiting && busy.end - busy.fcp >= SPEC.busyAfterFcpMs && busy.handedAt !== null && (started === null || started >= busy.handedAt),
+        `invalid run: busy until FCP + ${(busy.end - busy.fcp).toFixed(0)}ms, script waiting ${busy.pageWaiting}, handed at ${busy.handedAt?.toFixed(0)}ms, started ${started?.toFixed(0)}ms`).toBe(true)
+      expect.soft(held, 'DA24 (b): numbers below the screen not paused at 0 after the late start').toMatchObject({ countUps: ['paused', 'paused', 'paused'], values: ['0', '0', '0'] })
+
+      await showPartOfStatsCard(page, 0.25)
+      await page.waitForTimeout(600)
+      const quarter = await page.evaluate(readCountUp)
+      expect(quarter.visibleRatio, 'a quarter of the card in view').toBeGreaterThan(0.2)
+      expect(quarter.visibleRatio, 'a quarter of the card in view').toBeLessThan(0.3)
+      expect.soft(quarter, 'DA24 (b): the count started before half of the card was on screen').toMatchObject({ countUps: ['paused', 'paused', 'paused'], values: ['0', '0', '0'] })
+
+      await centreStatsCard(page)
+      await page.waitForTimeout(1600)
+      const log = await motionLog(page)
+      const onScreen = log.counts.filter(frame => frame.onScreen)
+      expect(onScreen.length, 'DA24 (b): frames with the numbers on screen').toBeGreaterThan(0)
+      expectSpans('DA24 (b)', countSpans(onScreen))
+      expect.soft(stepsDown(onScreen), 'DA24 (b): a number went down on screen').toEqual([])
+      expect.soft(onScreen.at(-1)!.shown, 'DA24 (b): the numbers did not end on their final values').toEqual(FINAL_NUMBERS)
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------------------------
 // Accessibility and the generated HTML
 // ---------------------------------------------------------------------------------------------
 
@@ -1381,8 +1768,9 @@ test.describe('the generated HTML', () => {
     const switches = [...page.matchAll(/<([a-z]+)\b[^>]*\sdata-countup-mode="([^"]*)"/g)].map(([, tag, value]) => ({ tag, value }))
     expect(switches).toEqual([{ tag: 'section', value: COUNTUP_MODE }])
     expect(page.match(/<section\b[^>]*\sid="stats"[^>]*>/g)![0]).toContain(`data-countup-mode="${COUNTUP_MODE}"`)
-    // The page script writes the state; the HTML never has it.
+    // The page script writes the state and the arm; the HTML never has them.
     expect(page).not.toContain('data-countup-state')
+    expect(page).not.toContain('data-countup-armed')
     for (const finalText of FINAL_NUMBERS) expect(page).toContain(`<span class="countup-final">${finalText}</span>`)
   })
 

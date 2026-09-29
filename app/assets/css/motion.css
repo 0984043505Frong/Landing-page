@@ -63,8 +63,9 @@
    value, or none, means no count at all.
    - "load" (mode A): shows 0 from the first style calculation (fill backwards). CSS alone would
      start counting before the first paint, so the page script restarts the count on the frame
-     after the first contentful paint (or holds it at 0 while the numbers are off screen). The
-     1200ms fallback delay counts anyway if the script never runs.
+     after the first contentful paint (or holds it at 0 while the numbers are off screen). A
+     script that runs arms the count as it is parsed (data-countup-armed: paused at 0 until the
+     script starts it); the 1200ms fallback delay counts only if the script never runs.
    - "scroll" (mode B): no animation by default, so the first paint shows the final values. The
      page script marks numbers that are fully below the screen "pending" (0, not seen yet), then
      "run" once half of the card is on screen. No fallback: without the script nothing waits.
@@ -118,6 +119,13 @@
   /* Mode A: 0 from the first style calculation until the page script starts the count. */
   [data-countup-mode="load"] .countup {
     animation: countup var(--duration-countup) var(--ease-countup) calc(var(--countup-fallback-delay) + var(--countup-delay, 0ms)) backwards;
+  }
+
+  /* Mode A, armed (D-053): the page script has run, so it starts the count itself, however late.
+     The count waits paused at 0 - the 1200ms fallback is only for a page where the script never
+     runs. The script removes the arm first thing when it starts. */
+  [data-countup-mode="load"][data-countup-armed] .countup {
+    animation-play-state: paused;
   }
 
   /* Mode B: 0 while waiting below the screen, then the same count with the stagger as its only delay. */
