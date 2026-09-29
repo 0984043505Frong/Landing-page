@@ -222,8 +222,11 @@ test.describe('without JavaScript, at 375px', () => {
   test('a (D-027) every section shows its text from app/data/', async ({ page }) => {
     await page.goto('./')
     for (const [selector, texts] of Object.entries(textOfEachPart())) {
+      // The part must be in the generated HTML (a section rendered only in the browser is not).
+      const part = page.locator(selector)
+      await expect(part, `${selector} in the generated HTML`).toHaveCount(1)
       // innerText holds only the text that is rendered: not what is hidden.
-      const shown = normaliseSpaces(await page.locator(selector).innerText())
+      const shown = normaliseSpaces(await part.innerText())
       const missing = texts.map(text => normaliseSpaces(joinPhrases(text))).filter(text => !shown.includes(text))
       expect(missing, `text missing from ${selector}`).toEqual([])
     }
