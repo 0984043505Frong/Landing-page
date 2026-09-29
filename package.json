@@ -11,6 +11,7 @@
     "preview": "node scripts/stage-preview.mjs && serve .preview -l 4173",
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
+    "measure:js": "node scripts/measure-js.mjs",
     "lint": "eslint .",
     "typecheck": "nuxt typecheck",
     "brand-images": "node scripts/generate-brand-images.mjs",
