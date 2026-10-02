@@ -17,7 +17,108 @@ Live site: <https://0984043505frong.github.io/Landing-page/>
 - **Stack:** [Nuxt 4](https://nuxt.com) generated as static files, [Tailwind CSS 4](https://tailwindcss.com),
   [`@nuxt/fonts`](https://fonts.nuxt.com), TypeScript. No UI library, no jQuery, no slider.
 - **Tests:** [Vitest](https://vitest.dev) for the form rules and the content data,
-  [Playwright](https://playwright.dev) for the generated page at 375, 768 and 1440px.
+  [Playwright](https://playwright.dev) for the generated page at 375, 768 and 1440px wide, and at
+  812×375 (a phone on its side).
+
+## Performance techniques
+
+What keeps the page fast, and the numbers before and after v1.1.
+
+- **Static generation (D-027).** `npm run generate` renders every section, with all of its text,
+  into `index.html`: the browser fetches no data and builds nothing itself to show the page.
+- **Lazy hydration (D-039, D-040).** In `app/app.vue`, `SkipLink` and `SiteHeader` hydrate with the
+  page, because the menu button must work on the first tap; `ContactSection` is
+  `hydrate-on-visible`, because the quote form needs Vue; the other 8 components are
+  `hydrate-never`, because they have nothing to run, so their JavaScript is never downloaded. A
+  `build:manifest` hook in `nuxt.config.ts` turns off `<link rel="prefetch">`, because Nuxt 4.5.2
+  still prefetches the chunks of `hydrate-never` components.
+- **The quote form before it hydrates (D-041).** What is typed before the contact section hydrates
+  is kept (`QuoteForm.vue` reads the fields in `onBeforeMount`), and a submit made meanwhile is held
+  by `app/plugins/pending-submit.client.ts` and sent once the form hydrates. The form has
+  `method="dialog"`, so a submit that Vue does not handle does nothing instead of putting the typed
+  values in the URL; when a form service such as Formspree is connected, change it to
+  `method="post"` with the service's `action`.
+- **No image files (D-027).** The page loads no raster image: the icons and the hero illustration
+  are inline SVG that take their colours from the theme tokens, so there is nothing to lazy-load.
+  An `<img>` or `<iframe>` added below the hero must have `loading="lazy"` (with `width`, `height`
+  and, on an image, `decoding="async"`), or the browser tests "c (D-027) every image or frame below
+  the hero is lazy-loaded and sized; none in the hero or above it is lazy"
+  (`tests/e2e/lazy-hydration.spec.ts`) and "14 (N7) images are SVG or WebP, and lazy-loaded below
+  the hero" (`tests/e2e/landing.spec.ts`) fail.
+- **Self-hosted font.** `@nuxt/fonts` downloads Noto Sans Thai while the site builds and the site
+  serves its own copy, so visitors never connect to Google Fonts; `index.html` preloads one font
+  file, the Thai subset that both weights use.
+- **Motion with CSS and one small inline script (D-045, D-050, D-030, D-031, D-034).**
+  - `app/app.vue` writes `app/motion/page-motion.js` into the generated HTML as an inline script.
+    It drives CSS transitions and animations with IntersectionObserver, and never waits for the
+    page's JavaScript or for a section to hydrate (D-045).
+  - It starts on the frame after the first contentful paint and reads no layout before then: a
+    build that read layout while the page was still being parsed scored 97 instead of 99 in
+    Lighthouse (LP-018, D-050).
+  - Only `transform` and `opacity` move, for 400 ms or less, except the count-up of the stats, which
+    lasts about 1 s (D-030, D-034); the timings are tokens in `app/assets/css/theme.css`.
+  - A counting number is drawn in an `aria-hidden` layer over its final value, which stays in the
+    HTML for search engines and screen readers and holds the box at its final width (D-031).
+  - With reduced motion nothing animates; without JavaScript, or if the script never runs, nothing
+    is hidden; and there is no animation library.
+  - The count-up is never left at 0: the script "arms" it as soon as it runs
+    (`data-countup-armed`), so the CSS fallback that counts by itself after 1.2 s is only for a page
+    where the script never runs, and a 5 s watchdog (`ARM_WATCHDOG_MS`) starts an armed count if
+    neither the first-paint report nor `load` ever comes (D-053, D-057).
+- **Count-up modes (D-049).** This build uses mode A, `COUNTUP_MODE = 'load'` in
+  `app/motion/countup-mode.ts`: the numbers on the first screen count up right after the first
+  paint. In a Lighthouse comparison of v1.0.0, mode A and mode B run back to back (LP-018), all
+  three scored a median of 99, so mode A costs nothing; to switch to mode B (the first screen shows
+  the final values at once, and only numbers scrolled to later count), change that line to
+  `'scroll'`.
+- **Size-adjusted Thai fallback (D-058, D-061).**
+  - Until Noto Sans Thai arrives, the browser draws Thai in a system font at that font's own size
+    (on Windows, Tahoma, 7–13% wider), and the size-adjusted fallbacks that `@nuxt/fonts` adds are
+    Latin fonts only, so the hero heading wrapped differently and the page jumped when the web font
+    came in.
+  - `app/assets/css/main.css` adds an `@font-face` "Thai Fallback: Tahoma" per weight, scaled with
+    `size-adjust` (97% for 400, 91.09% for 700) and limited to Thai letters with `unicode-range`;
+    `--font-sans` in `theme.css` lists it after Noto Sans Thai, which replaces it once loaded.
+  - When the web font arrives after the first paint, the layout shift goes **0.27 → 0.0006** at
+    1440×900 and **0.25 → 0.003** at 812×375 (Chromium on Windows, font files held back until the
+    first paint, largest of 5 loads); once the font has loaded, the page is identical to the pixel.
+  - Lighthouse already reports CLS 0 for both versions, because there the font arrives before the
+    first paint: these numbers are the slow-network case.
+  - Limits: it helps only where Tahoma is installed, which is Windows (measured) and probably macOS
+    (not measured); iOS and Android behave as v1.0.0 did. During the fallback, 88 of 1601 window
+    widths (320 to 1920px) still wrap the hero text differently, against 1134 in v1.0.0.
+
+**Before and after**
+
+| | [v1.0.0](https://github.com/0984043505Frong/Landing-page/tree/v1.0.0) | v1.1 (this build) |
+|---|---|---|
+| M1: the entry script and its `modulepreload` files, gzip | 68.48 kB | 58.06 kB |
+| M2: JavaScript downloaded when the page opens at 375×812, gzip | 73.47 kB | 62.60 kB |
+| Lighthouse Performance, median of 5 runs | 99 | 99 |
+| Lighthouse CLS, every run | 0 | 0 |
+| Layout shift when the web font arrives after the first paint, 1440×900 / 812×375 | 0.27 / 0.25 | 0.0006 / 0.003 |
+
+- M2 counts every script the page downloads as it opens, inline scripts and `<link rel="prefetch">`
+  downloads included: v1.0.0 prefetched the chunks of its two error pages (404 and 500), without
+  which its M2 is 68.02 kB.
+- Lighthouse 13.5.0, mobile preset, on a local build at `http://localhost:4173/Landing-page/`,
+  5 runs per build back to back on one machine (v1.0.0 first), 2026-10-02 (UTC). These are not
+  numbers from the live site. The layout shift is measured as described in the Thai fallback item
+  above.
+
+**Measure it yourself**
+
+```bash
+npm run generate     # M1: add up the gzip sizes this log shows for the entry script and for each
+                     # file that .output/public/index.html loads with <link rel="modulepreload">
+npm run preview      # in a second terminal
+npm run measure:js   # M2 (and M3, after scrolling and using the menu and the form)
+```
+
+To measure another build, such as the v1.0.0 tag, generate and preview that build, then run this
+repository's script on its files: `npm run measure:js -- --dir <that build>/.output/public`;
+`--url` measures another address. The header of `scripts/measure-js.mjs` explains the options; the
+script uses the Chromium of Playwright (`npx playwright install chromium`).
 
 ## Run it
 
@@ -33,6 +134,7 @@ npm run generate     # build the static site into .output/public/
 npm run preview      # serve that build: http://localhost:4173/Landing-page/
 npm run test:unit    # unit tests (Vitest)
 npm run test:e2e     # browser tests of the generated site (Playwright)
+npm run measure:js   # JavaScript the page loads: generate first, and keep preview running
 npm run lint         # ESLint, formatting included
 npm run typecheck    # TypeScript and Vue templates
 ```
@@ -50,9 +152,12 @@ npm run typecheck    # TypeScript and Vue templates
 
 ## Change the colours
 
-All colours, the font, corner radii and shadows are tokens in **`app/assets/css/theme.css`**.
-Change the values there and build again: every part of the page takes its colours from these
-tokens, and Tailwind's own colour palette is switched off, so no other colour can slip in.
+All colours, the font, corner radii, shadows and motion timings are tokens in
+**`app/assets/css/theme.css`**. Change the values there and build again: every part of the page
+takes its colours from these tokens, and Tailwind's own colour palette is switched off, so no other
+colour can slip in. The font token, `--font-sans`, also lists "Thai Fallback: Tahoma", a fallback
+face sized to Noto Sans Thai (see Performance techniques): after changing the font, measure its
+`size-adjust` again (see "The hero text" below).
 
 Three files outside the CSS show the brand too, and have to be made again after a change of
 colours or name: `public/favicon.svg`, `public/apple-touch-icon.png` and `public/og-image.png`
@@ -117,6 +222,24 @@ heading: ['อบรมพนักงานให้', 'ได้ผลจร�
 **The hero text** (`site.hero`) sets how far down the stats card sits on a phone. After changing
 it, check the first screen at 375×812: the floating LINE button must not cover the stats card.
 `npm run test:e2e` checks this (test DA8), and a unit test holds the current hero text (below).
+The `size-adjust` values of "Thai Fallback: Tahoma" in `app/assets/css/main.css` were measured for
+this hero text, so after changing the hero text or the font, measure them again as the comment
+above them explains. `tests/e2e/font-fallback.spec.ts` checks at 4 window sizes that the hero text
+wraps the same in the fallback as in Noto Sans Thai, but only on Windows; elsewhere, CI included,
+it checks only the CSS rules (D-060).
+
+**A new section** follows the rules of the others:
+
+- Its text goes in a file in `app/data/`; the component holds none.
+- In `app/app.vue`, pick its hydration as the comment there explains: `hydrate-never` if it has
+  nothing to run in the browser, `hydrate-on-visible` if it needs Vue below the first screen, and
+  no lazy hydration if it must work on the first tap, like the header. Pass a lazy component no
+  prop that can change.
+- To fade it in when it is scrolled to, give its heading block and each card the `data-reveal`
+  attribute, as `app/components/CoursesSection.vue` does; `app/motion/page-motion.js` does the rest.
+- An `<img>` or `<iframe>` below the hero needs `loading="lazy"`, `width` and `height`, and an image
+  also `decoding="async"`, or the browser tests c (D-027) and 14 (N7) fail (see Performance
+  techniques).
 
 ## Tests that hold the demo's text
 
@@ -148,7 +271,8 @@ error, and the fields that must stay phrase lists.
 Some browser tests in `tests/e2e/landing.spec.ts` describe what this demo does and change with it:
 the tests numbered **8 (N13)** expect that the form sends nothing and that `TODO(formspree)` is
 still there, and the tests numbered **10** and **11** expect LINE buttons that lead to this page
-and no link to LINE.
+and no link to LINE. In `tests/e2e/lazy-hydration.spec.ts`, test **g (D-041)** expects a submit
+without JavaScript to send nothing.
 
 ## Use it for a client
 
@@ -167,6 +291,9 @@ and no link to LINE.
   (`quoteForm.success.note` in `app/data/quoteForm.ts`), and its test (N13). Change the unit
   test "resolves without sending anything over the network" in
   `tests/unit/submitQuote.test.ts` as well: it expects `submitQuote()` never to call `fetch`.
+  To let the form send without JavaScript too, change its `method="dialog"` in
+  `app/components/QuoteForm.vue` to `method="post"` with the service's form URL as `action`, and
+  change the browser test g (D-041), which expects such a submit to send nothing.
 - **Site address:** `site.url` in `app/data/site.ts` is the only place for it. Its path
   (`/Landing-page/`) becomes `app.baseURL` in `nuxt.config.ts`, so every file of the site is
   requested under that path, and `og:url`, the canonical link and `og:image` are built from it.
