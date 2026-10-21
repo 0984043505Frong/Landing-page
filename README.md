@@ -9,7 +9,7 @@ and every piece of text can be changed without touching a component.
 > "เว็บไซต์ตัวอย่างเพื่อแสดงผลงาน · แบรนด์และข้อมูลเป็นสมมติ" (a demo website to show work;
 > the brand and its data are fictional).
 
-Live site: <https://0984043505frong.github.io/Landing-page/>
+Live site: <https://approdo.github.io/Landing-page/>
 
 - **Sections:** sticky header with an anchor menu (a "เมนู" button and panel below 1024px), hero,
   stats, courses, trainer service in 4 steps, trainers, FAQ, contact buttons with a quote form,
@@ -90,7 +90,7 @@ What keeps the page fast, and the numbers before and after v1.1.
 
 **Before and after**
 
-| | [v1.0.0](https://github.com/0984043505Frong/Landing-page/tree/v1.0.0) | v1.1 (this build) |
+| | [v1.0.0](https://github.com/approdo/Landing-page/tree/v1.0.0) | v1.1 (this build) |
 |---|---|---|
 | M1: the entry script and its `modulepreload` files, gzip | 68.48 kB | 58.06 kB |
 | M2: JavaScript downloaded when the page opens at 375×812, gzip | 73.47 kB | 62.60 kB |
@@ -311,7 +311,7 @@ The site is published to GitHub Pages by **GitHub Actions**, with one workflow:
   `npm run lint`, `npm run typecheck`, `npm run test:unit`, `npm run generate`, and
   `npm run test:e2e` on the generated site (with Chromium installed first).
 - **A push to `main`** that passes all of them is deployed: `.output/public` goes live at
-  <https://0984043505frong.github.io/Landing-page/>. Pull requests are never deployed.
+  <https://approdo.github.io/Landing-page/>. Pull requests are never deployed.
 - To deploy `main` again without a new commit, run the workflow by hand: Actions → "CI and deploy"
   → "Run workflow".
 

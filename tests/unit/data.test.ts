@@ -16,12 +16,12 @@ function unique<T>(values: T[]) {
 
 describe('site', () => {
   it('is served from /Landing-page/ on GitHub Pages', () => {
-    expect(site.url).toBe('https://0984043505frong.github.io/Landing-page/')
+    expect(site.url).toBe('https://approdo.github.io/Landing-page/')
     expect(new URL(site.url).pathname).toBe('/Landing-page/')
   })
 
   it('resolves og:image to an absolute URL under the site URL', () => {
-    expect(new URL(site.ogImage, site.url).href).toBe('https://0984043505frong.github.io/Landing-page/og-image.png')
+    expect(new URL(site.ogImage, site.url).href).toBe('https://approdo.github.io/Landing-page/og-image.png')
   })
 
   it('links the menu to sections on the page, each once', () => {

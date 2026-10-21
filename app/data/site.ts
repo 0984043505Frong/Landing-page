@@ -6,7 +6,7 @@ import type { Site } from '../types/content'
 export const site = {
   name: 'BrightPath Academy',
   // The one place for the site URL: its path ('/Landing-page/') becomes the Nuxt base URL.
-  url: 'https://0984043505frong.github.io/Landing-page/',
+  url: 'https://approdo.github.io/Landing-page/',
   title: 'BrightPath Academy — หลักสูตรอบรมองค์กรและบริการจัดหาวิทยากร',
   description:
     'ศูนย์ฝึกอบรมองค์กรและบริการจัดหาวิทยากร หลักสูตร In-house ทั้ง Onsite และ Online ที่ปรับให้ตรงกับทีมของคุณ ขอใบเสนอราคาได้ทันที ทีมงานติดต่อกลับภายใน 1 วันทำการ',
